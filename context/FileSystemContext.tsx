@@ -17,7 +17,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const joinedAt = Date.now();
     const id = generateId();
-    // Sequential-style name based on timestamp
     const name = `User ${joinedAt.toString().slice(-4)}`;
     
     const newProfile = {
@@ -76,8 +75,25 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isShareModalMinimized, setShareModalMinimized] = useState(false);
   const [shareViewMode, setShareViewMode] = useState<ShareViewMode>('transfer');
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
+  
+  // Auto-Connect ID from URL
+  const [autoConnectId, setAutoConnectId] = useState<string | null>(null);
 
-  // Global Chat History Persistence (New Key to reset history as requested)
+  // Parse URL for connection requests on startup
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const connectId = params.get('connect');
+      if (connectId) {
+          console.log("Found connect ID in URL:", connectId);
+          setAutoConnectId(connectId);
+          setShareModalOpen(true);
+          setShareViewMode('transfer');
+          // Clear URL to prevent re-connect loop on refresh
+          window.history.replaceState({}, '', window.location.pathname);
+      }
+  }, []);
+
+  // Global Chat History Persistence
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
       try {
           const saved = localStorage.getItem('neuro_chat_secure_v1');
@@ -92,10 +108,8 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addChatMessage = useCallback((msg: ChatMessage) => {
       setChatHistory(prev => {
-          // Avoid duplicates
           if (prev.some(m => m.id === msg.id)) return prev;
           const updated = [...prev, msg];
-          // Limit to last 50 messages locally to keep it clean
           return updated.slice(-50); 
       });
   }, []);
@@ -109,20 +123,16 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const existingIds = new Set(prev.map(m => m.id));
           const newMessages = remoteMessages.filter(m => !existingIds.has(m.id));
           if (newMessages.length === 0) return prev;
-          
           const combined = [...prev, ...newMessages].sort((a, b) => a.timestamp - b.timestamp);
-          // Strict limit: only keep latest 50 messages
           return combined.slice(-50);
       });
   }, []);
 
-  // Keep track of created URLs for cleanup to prevent memory leaks
+  // Keep track of created URLs for cleanup
   const objectUrlsRef = useRef<Set<string>>(new Set());
 
-  // Cleanup effect
   useEffect(() => {
     return () => {
-      // Revoke all URLs when the provider unmounts (app close/refresh)
       objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
     };
   }, []);
@@ -147,7 +157,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       size: fileBlob.size,
       url: url,
       createdAt: Date.now(),
-      folderId: null, // Received files go to root initially
+      folderId: null, 
       isDeleted: false,
       aiData: undefined
     };
@@ -159,7 +169,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setTransferHistory(prev => [item, ...prev]);
   }, []);
 
-  // Selection Logic
   const toggleSelection = useCallback((id: string) => {
     setSelectedFileIds(prev => {
       const newSet = new Set(prev);
@@ -224,14 +233,11 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         });
 
         newFilesAccumulator.push(...chunkItems);
-        
         const processed = endIndex;
         const percent = Math.round((processed / totalFiles) * 100);
         setUploadProgress(percent);
         setUploadStatus(`${processed} / ${totalFiles}`);
-
         await new Promise(resolve => setTimeout(resolve, 0));
-
         if (endIndex < totalFiles) {
             await processBatch(endIndex);
         }
@@ -258,9 +264,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteFile = (fileId: string) => {
     setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: true } : f));
-    if (selectedFileIds.has(fileId)) {
-        toggleSelection(fileId);
-    }
+    if (selectedFileIds.has(fileId)) toggleSelection(fileId);
   };
 
   const restoreFile = (fileId: string) => {
@@ -276,9 +280,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       return prev.filter(f => f.id !== fileId);
     });
-    if (selectedFileIds.has(fileId)) {
-        toggleSelection(fileId);
-    }
+    if (selectedFileIds.has(fileId)) toggleSelection(fileId);
   };
 
   const createFolder = (name: string) => {
@@ -294,7 +296,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const analyzeFileWithAI = async (fileId: string) => {
     const file = files.find(f => f.id === fileId);
     if (!file || file.type !== FileType.IMAGE) return;
-
     try {
       const data = await analyzeImageContent(file.url, file.mimeType);
       setFiles(prev => prev.map(f => f.id === fileId ? { ...f, aiData: data } : f));
@@ -320,6 +321,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       shareViewMode, setShareViewMode,
       selectedFileIds, toggleSelection, clearSelection,
       chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
+      autoConnectId, // Exposed to ShareModal
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

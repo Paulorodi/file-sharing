@@ -110,6 +110,9 @@ export interface FileSystemContextType {
   addChatMessage: (msg: ChatMessage) => void;
   deleteChatMessage: (msgId: string) => void;
   syncChatHistory: (remoteParams: ChatMessage[]) => void;
+  
+  // Auto Connect
+  autoConnectId?: string | null;
 
   // Actions
   addFiles: (files: FileList) => Promise<void>;

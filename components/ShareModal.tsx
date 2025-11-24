@@ -40,7 +40,7 @@ export const ShareModal: React.FC = () => {
       isShareModalMinimized, setShareModalMinimized,
       shareViewMode, selectedFileIds, toggleSelection, clearSelection,
       chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
-      enableAdminMode
+      enableAdminMode, autoConnectId
   } = useFileSystem();
   
   // --- State ---
@@ -103,12 +103,26 @@ export const ShareModal: React.FC = () => {
       });
   };
 
+  const copyConnectionLink = () => {
+      const url = `${window.location.origin}${window.location.pathname}?connect=${myPeerId}`;
+      navigator.clipboard.writeText(url);
+      alert("Connection link copied! Send this to your friend to connect instantly.");
+  };
+
   // Initialize Tab based on Selection
   useEffect(() => {
     if (shareViewMode === 'transfer' && selectedFileIds.size > 0) {
         setTransferTab('files');
     }
   }, [shareViewMode, selectedFileIds.size]);
+
+  // Handle Auto-Connect from URL (if passed via context)
+  useEffect(() => {
+      if (autoConnectId && myPeerId && !connectionsMap.current.has(autoConnectId) && autoConnectId !== myPeerId) {
+          console.log("Auto-connecting to:", autoConnectId);
+          connectToPeer(autoConnectId);
+      }
+  }, [autoConnectId, myPeerId]);
 
   // Initialize PeerJS
   useEffect(() => {
@@ -367,10 +381,17 @@ export const ShareModal: React.FC = () => {
                              </div>
                          )}
                          
-                         {/* Small QR Preview */}
-                         {qrCodeUrl && peers.length === 0 && transferTab === 'dashboard' && (
-                            <div onClick={() => setShowLargeQR(true)} className="mt-4 p-2 bg-white rounded-xl cursor-pointer hover:scale-105 transition-transform">
-                                <img src={qrCodeUrl} className="w-24 h-24" alt="QR" />
+                         {/* Link and QR Preview */}
+                         {transferTab === 'dashboard' && (
+                            <div className="mt-4 flex flex-col items-center">
+                                <button onClick={copyConnectionLink} className="text-blue-400 text-xs hover:underline mb-3 flex items-center">
+                                    <Icons.Copy size={12} className="mr-1" /> Copy Remote Link
+                                </button>
+                                {qrCodeUrl && peers.length === 0 && (
+                                    <div onClick={() => setShowLargeQR(true)} className="p-2 bg-white rounded-xl cursor-pointer hover:scale-105 transition-transform">
+                                        <img src={qrCodeUrl} className="w-24 h-24" alt="QR" />
+                                    </div>
+                                )}
                             </div>
                          )}
                     </div>
