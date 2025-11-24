@@ -77,24 +77,26 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [shareViewMode, setShareViewMode] = useState<ShareViewMode>('transfer');
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
 
-  // Global Chat History Persistence
+  // Global Chat History Persistence (New Key to reset history as requested)
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
       try {
-          const saved = localStorage.getItem('neuro_chat_history');
+          const saved = localStorage.getItem('neuro_chat_secure_v1');
           return saved ? JSON.parse(saved) : [];
       } catch (e) { return []; }
   });
 
   // Persist chat on change
   useEffect(() => {
-      localStorage.setItem('neuro_chat_history', JSON.stringify(chatHistory));
+      localStorage.setItem('neuro_chat_secure_v1', JSON.stringify(chatHistory));
   }, [chatHistory]);
 
   const addChatMessage = useCallback((msg: ChatMessage) => {
       setChatHistory(prev => {
           // Avoid duplicates
           if (prev.some(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
+          const updated = [...prev, msg];
+          // Limit to last 50 messages locally to keep it clean
+          return updated.slice(-50); 
       });
   }, []);
 
@@ -109,7 +111,8 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (newMessages.length === 0) return prev;
           
           const combined = [...prev, ...newMessages].sort((a, b) => a.timestamp - b.timestamp);
-          return combined;
+          // Strict limit: only keep latest 50 messages
+          return combined.slice(-50);
       });
   }, []);
 

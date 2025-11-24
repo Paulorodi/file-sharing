@@ -45,6 +45,7 @@ export const ShareModal: React.FC = () => {
   
   // --- State ---
   const [transferTab, setTransferTab] = useState<'dashboard' | 'scanner' | 'files'>('dashboard');
+  const [showLargeQR, setShowLargeQR] = useState(false); // New State for QR Pop-up
   
   // Peers & Chat
   const [myPeerId, setMyPeerId] = useState<string>('');
@@ -312,6 +313,27 @@ export const ShareModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in">
         
+        {/* Large QR Overlay */}
+        {showLargeQR && qrCodeUrl && (
+            <div className="absolute inset-0 z-[70] bg-black/95 flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
+                <div className="bg-white p-4 rounded-3xl shadow-2xl max-w-sm w-full aspect-square flex items-center justify-center relative overflow-hidden">
+                    <img src={qrCodeUrl} className="w-full h-full object-contain" alt="Full QR" />
+                    {/* Watermark */}
+                    <div className="absolute bottom-4 right-4 bg-black/10 px-3 py-1 rounded-full backdrop-blur-sm">
+                        <span className="text-xs font-bold text-slate-900 opacity-50 font-mono">NS-ORD</span>
+                    </div>
+                </div>
+                <p className="text-white mt-6 font-bold text-xl tracking-wide">Scan to Connect</p>
+                <p className="text-slate-400 mt-2 text-sm font-mono bg-slate-900 px-4 py-2 rounded-lg border border-slate-800">{myPeerId}</p>
+                <button 
+                    onClick={() => setShowLargeQR(false)}
+                    className="mt-8 bg-slate-800 hover:bg-slate-700 text-white px-8 py-3 rounded-full font-bold border border-slate-700 transition-all"
+                >
+                    Close
+                </button>
+            </div>
+        )}
+
         <div className="absolute top-4 right-4 z-50 flex items-center space-x-2">
              <button onClick={() => setShareModalMinimized(true)} className="p-2 bg-slate-800 text-slate-400 rounded-full"><Icons.Minimize size={20} /></button>
              {shareViewMode === 'transfer' && (
@@ -339,14 +361,15 @@ export const ShareModal: React.FC = () => {
                                  <button onClick={startScanner} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg flex items-center justify-center space-x-2 text-sm font-bold shadow-lg">
                                      <Icons.Scan size={16} /> <span>Scan</span>
                                  </button>
-                                 <button onClick={() => setQrCodeUrl(prev => prev)} className="flex-1 bg-slate-800 text-white py-2 rounded-lg flex items-center justify-center space-x-2 text-sm font-bold border border-slate-700">
+                                 <button onClick={() => setShowLargeQR(true)} className="flex-1 bg-slate-800 text-white py-2 rounded-lg flex items-center justify-center space-x-2 text-sm font-bold border border-slate-700">
                                      <Icons.QrCode size={16} /> <span>My Code</span>
                                  </button>
                              </div>
                          )}
                          
+                         {/* Small QR Preview */}
                          {qrCodeUrl && peers.length === 0 && transferTab === 'dashboard' && (
-                            <div className="mt-4 p-2 bg-white rounded-xl">
+                            <div onClick={() => setShowLargeQR(true)} className="mt-4 p-2 bg-white rounded-xl cursor-pointer hover:scale-105 transition-transform">
                                 <img src={qrCodeUrl} className="w-24 h-24" alt="QR" />
                             </div>
                          )}
@@ -357,7 +380,12 @@ export const ShareModal: React.FC = () => {
                              <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                              <canvas ref={canvasRef} className="hidden" />
                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <div className="w-64 h-64 border-2 border-green-500 rounded-lg"></div>
+                                <div className="w-64 h-64 border-2 border-green-500 rounded-lg relative">
+                                    {/* Watermark in Scanner */}
+                                    <div className="absolute top-2 left-2 bg-black/50 px-2 py-0.5 rounded text-[10px] font-mono text-green-400 border border-green-500/30">
+                                        NS-ORD
+                                    </div>
+                                </div>
                              </div>
                              <button onClick={stopScanner} className="absolute bottom-8 bg-slate-800 text-white px-6 py-2 rounded-full font-bold">Cancel</button>
                         </div>
