@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode } from '../types';
+import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode, ChatMessage } from '../types';
 import { analyzeImageContent } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -54,6 +54,38 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isShareModalMinimized, setShareModalMinimized] = useState(false);
   const [shareViewMode, setShareViewMode] = useState<ShareViewMode>('transfer');
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
+
+  // Global Chat History Persistence
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
+      try {
+          const saved = localStorage.getItem('neuro_chat_history');
+          return saved ? JSON.parse(saved) : [];
+      } catch (e) { return []; }
+  });
+
+  // Persist chat on change
+  useEffect(() => {
+      localStorage.setItem('neuro_chat_history', JSON.stringify(chatHistory));
+  }, [chatHistory]);
+
+  const addChatMessage = useCallback((msg: ChatMessage) => {
+      setChatHistory(prev => {
+          // Avoid duplicates
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+      });
+  }, []);
+
+  const syncChatHistory = useCallback((remoteMessages: ChatMessage[]) => {
+      setChatHistory(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMessages = remoteMessages.filter(m => !existingIds.has(m.id));
+          if (newMessages.length === 0) return prev;
+          
+          const combined = [...prev, ...newMessages].sort((a, b) => a.timestamp - b.timestamp);
+          return combined;
+      });
+  }, []);
 
   // Keep track of created URLs for cleanup to prevent memory leaks
   const objectUrlsRef = useRef<Set<string>>(new Set());
@@ -258,6 +290,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isShareModalMinimized, setShareModalMinimized,
       shareViewMode, setShareViewMode,
       selectedFileIds, toggleSelection, clearSelection,
+      chatHistory, addChatMessage, syncChatHistory,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { useFileSystem } from '../context/FileSystemContext';
 import { Icons } from './Icons';
-import { FileItem } from '../types';
+import { FileItem, ChatMessage } from '../types';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 
@@ -13,15 +13,6 @@ interface ConnectedPeer {
   name: string;
   conn: DataConnection;
   unread: number;
-}
-
-interface ChatMessage {
-  id: string;
-  senderId: string;
-  senderName: string;
-  content: string;
-  timestamp: number;
-  isSystem?: boolean;
 }
 
 interface TransferProgress {
@@ -39,19 +30,18 @@ export const ShareModal: React.FC = () => {
   const { 
       setShareModalOpen, files, addReceivedFile, userProfile, addToHistory, 
       isShareModalMinimized, setShareModalMinimized,
-      shareViewMode, selectedFileIds, toggleSelection, clearSelection
+      shareViewMode, selectedFileIds, toggleSelection, clearSelection,
+      chatHistory, addChatMessage, syncChatHistory
   } = useFileSystem();
   
   // --- State ---
-  // If in 'transfer' mode: 'dashboard' | 'scanner' | 'files'
-  // If in 'chat' mode: handled by sidebar selection
   const [transferTab, setTransferTab] = useState<'dashboard' | 'scanner' | 'files'>('dashboard');
   
   // Peers & Chat
   const [myPeerId, setMyPeerId] = useState<string>('');
   const [peers, setPeers] = useState<ConnectedPeer[]>([]);
   const [activeChatId, setActiveChatId] = useState<string>('community');
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({ 'community': [] });
+  const [dmMessages, setDmMessages] = useState<Record<string, ChatMessage[]>>({});
   const [textInput, setTextInput] = useState('');
 
   // Transfers
@@ -62,23 +52,21 @@ export const ShareModal: React.FC = () => {
   const [connectIdInput, setConnectIdInput] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   
-  // Scanner Refs
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  // PeerJS Refs
   const peerRef = useRef<Peer | null>(null);
   const connectionsMap = useRef<Map<string, DataConnection>>(new Map());
 
-  // Initialize
+  // Initialize Tab based on Selection
   useEffect(() => {
-    // If selected files exist when opening, switch to file picker in transfer mode
     if (shareViewMode === 'transfer' && selectedFileIds.size > 0) {
         setTransferTab('files');
     }
   }, [shareViewMode, selectedFileIds.size]);
 
+  // Initialize PeerJS
   useEffect(() => {
     const initPeer = async () => {
       try {
@@ -108,7 +96,15 @@ export const ShareModal: React.FC = () => {
 
   // --- Logic ---
   const handleNewConnection = (conn: DataConnection) => {
-      conn.on('open', () => conn.send({ type: 'handshake', name: userProfile.name, id: myPeerId }));
+      conn.on('open', () => {
+          // Send Handshake + Sync Chat History (Sync Protocol)
+          conn.send({ 
+              type: 'handshake', 
+              name: userProfile.name, 
+              id: myPeerId,
+              chatHistory: chatHistory // Send my full history to new peer so they can sync
+          });
+      });
       conn.on('data', (data: any) => handleIncomingData(conn, data));
       conn.on('close', () => removePeer(conn.peer));
       connectionsMap.current.set(conn.peer, conn);
@@ -117,31 +113,41 @@ export const ShareModal: React.FC = () => {
   const removePeer = (peerId: string) => {
       connectionsMap.current.delete(peerId);
       setPeers(prev => prev.filter(p => p.id !== peerId));
-      addMessage('community', { id: Date.now().toString(), senderId: 'sys', senderName: 'Sys', content: `Device disconnected`, timestamp: Date.now(), isSystem: true });
   };
 
   const handleIncomingData = (conn: DataConnection, data: any) => {
       const peerId = conn.peer;
+      
       if (data.type === 'handshake') {
           const newPeer = { id: data.id || peerId, name: data.name || 'Unknown', conn, unread: 0 };
           setPeers(prev => prev.find(p => p.id === newPeer.id) ? prev : [...prev, newPeer]);
-          setMessages(prev => ({ ...prev, [newPeer.id]: prev[newPeer.id] || [] }));
-          addMessage('community', { id: Date.now().toString(), senderId: 'sys', senderName: 'Sys', content: `${newPeer.name} connected`, timestamp: Date.now(), isSystem: true });
+          
+          // Sync Protocol: Merge received history
+          if (data.chatHistory && Array.isArray(data.chatHistory)) {
+              syncChatHistory(data.chatHistory);
+          }
       } 
       else if (data.type === 'chat') {
-          addMessage(data.isCommunity ? 'community' : peerId, {
-              id: Date.now().toString(), senderId: peerId, senderName: data.senderName, content: data.content, timestamp: Date.now()
-          });
+          const msg: ChatMessage = {
+              id: data.id,
+              senderId: data.senderId,
+              senderName: data.senderName,
+              content: data.content,
+              timestamp: data.timestamp,
+              isCommunity: data.isCommunity
+          };
+
+          if (data.isCommunity) {
+              addChatMessage(msg); // Add to global store
+          } else {
+              // Local DM store
+              setDmMessages(prev => ({ ...prev, [peerId]: [...(prev[peerId] || []), msg] }));
+          }
       }
       else if (data.type === 'file-transfer') {
           addReceivedFile(new Blob([data.file]), { name: data.meta.name, type: data.meta.type });
           setTransfers(prev => [...prev, { id: Date.now().toString(), fileName: data.meta.name, progress: 100, status: 'completed', speed: 'Done', totalSize: data.file.size, transferred: data.file.size, peerId }]);
-          addMessage(peerId, { id: Date.now().toString(), senderId: peerId, senderName: data.senderName, content: `Sent file: ${data.meta.name}`, timestamp: Date.now() });
       }
-  };
-
-  const addMessage = (chatId: string, msg: ChatMessage) => {
-      setMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] || []), msg] }));
   };
 
   const connectToPeer = (id: string) => {
@@ -151,15 +157,32 @@ export const ShareModal: React.FC = () => {
 
   const sendMessage = () => {
       if (!textInput.trim()) return;
-      const msg = { id: Date.now().toString(), senderId: 'me', senderName: userProfile.name, content: textInput, timestamp: Date.now() };
-      addMessage(activeChatId, msg);
-      if (activeChatId === 'community') peers.forEach(p => p.conn.send({ type: 'chat', isCommunity: true, content: textInput, senderName: userProfile.name }));
-      else peers.find(p => p.id === activeChatId)?.conn.send({ type: 'chat', isCommunity: false, content: textInput, senderName: userProfile.name });
+      const timestamp = Date.now();
+      const msgId = Math.random().toString(36).substring(2) + Date.now();
+      
+      const msg: ChatMessage = { 
+          id: msgId, 
+          senderId: myPeerId || 'me', 
+          senderName: userProfile.name, 
+          content: textInput, 
+          timestamp,
+          isCommunity: activeChatId === 'community'
+      };
+
+      if (activeChatId === 'community') {
+          addChatMessage(msg); // Save locally
+          // Broadcast to ALL peers
+          peers.forEach(p => p.conn.send({ type: 'chat', ...msg }));
+      } else {
+          // DM
+          setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
+          const target = peers.find(p => p.id === activeChatId);
+          if(target) target.conn.send({ type: 'chat', ...msg });
+      }
       setTextInput('');
   };
 
   const sendSelectedFiles = async () => {
-      // Send to everyone if in transfer mode or community chat, else to DM
       const targets = (shareViewMode === 'transfer' || activeChatId === 'community') ? peers : peers.filter(p => p.id === activeChatId);
       if (targets.length === 0) { alert("No devices connected!"); return; }
       
@@ -174,6 +197,7 @@ export const ShareModal: React.FC = () => {
       setTransferTab('dashboard');
   };
 
+  // QR Scanner Logic
   const startScanner = async () => {
     setTransferTab('scanner');
     try {
@@ -205,11 +229,13 @@ export const ShareModal: React.FC = () => {
 
   if (isShareModalMinimized) return null;
 
-  // --- RENDER ---
+  // --- Render View Selection ---
+  const messagesToRender = activeChatId === 'community' ? chatHistory : (dmMessages[activeChatId] || []);
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in">
         
-        {/* Mobile Minimize/Close Controls (Always visible top right) */}
+        {/* Mobile Minimize/Close Controls */}
         <div className="absolute top-4 right-4 z-50 flex items-center space-x-2">
              <button onClick={() => setShareModalMinimized(true)} className="p-2 bg-slate-800 text-slate-400 rounded-full"><Icons.Minimize size={20} /></button>
              {shareViewMode === 'transfer' && (
@@ -219,7 +245,7 @@ export const ShareModal: React.FC = () => {
 
         <div className="bg-slate-900 w-full h-full md:max-w-4xl md:h-[800px] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-slate-700">
             
-            {/* === MODE 1: TRANSFER VIEW === */}
+            {/* === TRANSFER VIEW === */}
             {shareViewMode === 'transfer' && (
                 <div className="flex-1 flex flex-col">
                     {/* Header: Connection Status */}
@@ -245,7 +271,6 @@ export const ShareModal: React.FC = () => {
                              </div>
                          )}
                          
-                         {/* QR Overlay for "My Code" logic simplified -> just show it if no peers? Or nice toggle? Let's keep it simple: small QR always visible if space permits or modal. */}
                          {qrCodeUrl && peers.length === 0 && transferTab === 'dashboard' && (
                             <div className="mt-4 p-2 bg-white rounded-xl">
                                 <img src={qrCodeUrl} className="w-24 h-24" alt="QR" />
@@ -253,7 +278,6 @@ export const ShareModal: React.FC = () => {
                          )}
                     </div>
 
-                    {/* Scanner View */}
                     {transferTab === 'scanner' && (
                         <div className="flex-1 bg-black flex flex-col items-center justify-center relative">
                              <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
@@ -265,7 +289,6 @@ export const ShareModal: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Dashboard View */}
                     {transferTab === 'dashboard' && (
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                              {/* Transfer Actions */}
@@ -304,7 +327,6 @@ export const ShareModal: React.FC = () => {
                         </div>
                     )}
 
-                    {/* File Picker View */}
                     {transferTab === 'files' && (
                          <div className="flex-1 flex flex-col">
                              <div className="p-4 border-b border-slate-800 flex items-center space-x-3">
@@ -331,7 +353,7 @@ export const ShareModal: React.FC = () => {
                 </div>
             )}
 
-            {/* === MODE 2: CHAT VIEW === */}
+            {/* === CHAT VIEW === */}
             {shareViewMode === 'chat' && (
                 <div className="flex w-full h-full bg-slate-900">
                     {/* Sidebar (Always visible on Desktop, visible on Mobile if no active chat or toggled) */}
@@ -367,14 +389,13 @@ export const ShareModal: React.FC = () => {
                              </div>
                          </div>
                          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                             {(messages[activeChatId] || []).map(msg => (
-                                 <div key={msg.id} className={`flex ${msg.isSystem ? 'justify-center' : msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
-                                     {msg.isSystem ? <span className="bg-slate-800 text-slate-500 text-[10px] px-2 py-1 rounded-full">{msg.content}</span> : (
-                                         <div className={`max-w-[80%] p-3 rounded-xl ${msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
-                                             {activeChatId === 'community' && msg.senderId !== 'me' && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
-                                             <p className="text-sm">{msg.content}</p>
-                                         </div>
-                                     )}
+                             {messagesToRender.map(msg => (
+                                 <div key={msg.id} className={`flex ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
+                                     <div className={`max-w-[80%] p-3 rounded-xl ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                         {activeChatId === 'community' && (msg.senderId !== myPeerId && msg.senderId !== 'me') && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
+                                         <p className="text-sm">{msg.content}</p>
+                                         <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                     </div>
                                  </div>
                              ))}
                          </div>

@@ -51,6 +51,16 @@ export interface TransferHistoryItem {
   peerName: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  timestamp: number;
+  isSystem?: boolean;
+  isCommunity: boolean; // True for global chat, false for DM
+}
+
 export type ViewMode = 'grid' | 'list';
 export type SortOption = 'name' | 'date' | 'size' | 'type';
 
@@ -83,8 +93,6 @@ export interface FileSystemContextType {
   // Share State
   isShareModalOpen: boolean;
   isShareModalMinimized: boolean;
-  
-  // REPLACED shareModalTab with shareViewMode
   shareViewMode: ShareViewMode; 
   setShareViewMode: (mode: ShareViewMode) => void;
   
@@ -93,6 +101,11 @@ export interface FileSystemContextType {
   addReceivedFile: (fileBlob: Blob, meta: { name: string, type: string }) => void;
   transferHistory: TransferHistoryItem[];
   addToHistory: (item: TransferHistoryItem) => void;
+  
+  // Global Chat State
+  chatHistory: ChatMessage[];
+  addChatMessage: (msg: ChatMessage) => void;
+  syncChatHistory: (remoteParams: ChatMessage[]) => void;
 
   // Actions
   addFiles: (files: FileList) => Promise<void>;
