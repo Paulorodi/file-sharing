@@ -19,7 +19,7 @@ import { ChatMessage, UserProfile } from "../types";
 // Go to Firebase Console > Project Settings > General > Your Apps > SDK Setup and Configuration
 // ============================================================================
 const firebaseConfig = {
-  apiKey: "REPLAAIzaSyATkjWtu-HKc_WOBBdGi53aQS2u1osD98g",
+  apiKey: "AIzaSyATkjWtu-HKc_WOBBdGi53aQS2u1osD98g",
   authDomain: "neuroshare.firebaseapp.com",
   projectId: "neuroshare",
   storageBucket: "neuroshare.firebasestorage.app",
