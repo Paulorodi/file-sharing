@@ -63,14 +63,16 @@ export const MainContent: React.FC = () => {
       const recentFiles = files.filter(f => !f.isDeleted).sort((a,b) => b.createdAt - a.createdAt).slice(0, 8);
 
       return (
-        <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto p-6 scroll-smooth">
+        // Added pb-24 for mobile nav
+        <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto p-6 scroll-smooth pb-24">
            {/* Header */}
            <div className="flex justify-between items-center mb-8">
                <div>
                    <h1 className="text-2xl font-bold text-white">Welcome, {userProfile.name}</h1>
                    <p className="text-slate-400 text-sm mt-1">Ready to share files today?</p>
                </div>
-               <button onClick={toggleSidebar} className="lg:hidden text-slate-400"><Icons.Layout /></button>
+               {/* Hidden sidebar button on mobile as we use bottom nav */}
+               <button onClick={toggleSidebar} className="hidden lg:block text-slate-400"><Icons.Layout /></button>
            </div>
 
            {/* Quick Actions */}
@@ -149,7 +151,7 @@ export const MainContent: React.FC = () => {
            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
            
            {isUploading && (
-             <div className="fixed bottom-6 right-6 z-50 bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-2xl w-80 animate-in slide-in-from-bottom-5">
+             <div className="fixed bottom-24 right-6 z-50 bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-2xl w-80 animate-in slide-in-from-bottom-5">
                <div className="flex justify-between mb-2 text-sm text-slate-200"><span>Uploading...</span><span>{uploadStatus}</span></div>
                <div className="w-full bg-slate-700 h-2 rounded-full"><div className="bg-blue-500 h-full transition-all" style={{ width: `${uploadProgress}%` }} /></div>
              </div>
@@ -162,40 +164,43 @@ export const MainContent: React.FC = () => {
   // --- HISTORY VIEW ---
   if (activeFilter === 'history') {
       return (
-          <div className="flex-1 bg-slate-950 p-6 overflow-y-auto">
+          // Added pb-24 for mobile nav
+          <div className="flex-1 bg-slate-950 p-6 overflow-y-auto pb-24">
               <h2 className="text-2xl font-bold text-white mb-6">Transfer History</h2>
               <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
                   {transferHistory.length === 0 ? (
                       <div className="p-10 text-center text-slate-500">No transfers yet.</div>
                   ) : (
-                      <table className="w-full text-left">
-                          <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase">
-                              <tr>
-                                  <th className="px-6 py-4">File Name</th>
-                                  <th className="px-6 py-4">Direction</th>
-                                  <th className="px-6 py-4">Peer</th>
-                                  <th className="px-6 py-4">Size</th>
-                                  <th className="px-6 py-4">Time</th>
-                              </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800 text-sm text-slate-300">
-                              {transferHistory.map(item => (
-                                  <tr key={item.id} className="hover:bg-slate-800/50 transition-colors">
-                                      <td className="px-6 py-4 font-medium">{item.fileName}</td>
-                                      <td className="px-6 py-4">
-                                          {item.direction === 'sent' ? (
-                                              <span className="flex items-center text-blue-400"><Icons.Send size={14} className="mr-2"/> Sent</span>
-                                          ) : (
-                                              <span className="flex items-center text-green-400"><Icons.Download size={14} className="mr-2"/> Received</span>
-                                          )}
-                                      </td>
-                                      <td className="px-6 py-4">{item.peerName}</td>
-                                      <td className="px-6 py-4">{(item.fileSize / 1024 / 1024).toFixed(2)} MB</td>
-                                      <td className="px-6 py-4 text-slate-500">{new Date(item.timestamp).toLocaleTimeString()}</td>
+                      <div className="overflow-x-auto">
+                          <table className="w-full text-left">
+                              <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase">
+                                  <tr>
+                                      <th className="px-6 py-4">File Name</th>
+                                      <th className="px-6 py-4">Direction</th>
+                                      <th className="px-6 py-4">Peer</th>
+                                      <th className="px-6 py-4">Size</th>
+                                      <th className="px-6 py-4">Time</th>
                                   </tr>
-                              ))}
-                          </tbody>
-                      </table>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800 text-sm text-slate-300">
+                                  {transferHistory.map(item => (
+                                      <tr key={item.id} className="hover:bg-slate-800/50 transition-colors">
+                                          <td className="px-6 py-4 font-medium max-w-[150px] truncate">{item.fileName}</td>
+                                          <td className="px-6 py-4">
+                                              {item.direction === 'sent' ? (
+                                                  <span className="flex items-center text-blue-400"><Icons.Send size={14} className="mr-2"/> Sent</span>
+                                              ) : (
+                                                  <span className="flex items-center text-green-400"><Icons.Download size={14} className="mr-2"/> Received</span>
+                                              )}
+                                          </td>
+                                          <td className="px-6 py-4">{item.peerName}</td>
+                                          <td className="px-6 py-4">{(item.fileSize / 1024 / 1024).toFixed(2)} MB</td>
+                                          <td className="px-6 py-4 text-slate-500">{new Date(item.timestamp).toLocaleTimeString()}</td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
+                      </div>
                   )}
               </div>
           </div>
@@ -220,7 +225,7 @@ export const MainContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+      <div className="flex-1 overflow-y-auto p-6 scroll-smooth pb-24">
         {displayedFiles.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-60">
             <Icons.Folder size={64} className="mb-4 text-slate-700" />

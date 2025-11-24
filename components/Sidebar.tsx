@@ -12,6 +12,8 @@ export const Sidebar: React.FC = () => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(userProfile.name);
 
+  // On mobile, we hide the sidebar completely in favor of the BottomNav
+  // On desktop, we toggle visibility based on isSidebarOpen
   if (!isSidebarOpen) return null;
 
   const handleCreateFolder = () => {
@@ -39,8 +41,9 @@ export const Sidebar: React.FC = () => {
     </button>
   );
 
+  // Added 'hidden md:flex' to hide on mobile
   return (
-    <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-full flex-shrink-0">
+    <div className="hidden md:flex w-64 bg-slate-900 border-r border-slate-800 flex-col h-full flex-shrink-0">
       
       {/* Brand */}
       <div className="p-6 flex items-center space-x-3">

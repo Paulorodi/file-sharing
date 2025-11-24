@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileSystemProvider, useFileSystem } from './context/FileSystemContext';
 import { Sidebar } from './components/Sidebar';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { MainContent } from './components/MainContent';
 import { SearchBar } from './components/SearchBar';
 import { ShareModal } from './components/ShareModal';
@@ -12,7 +13,7 @@ const Layout = () => {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Global Header */}
         <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0 z-30">
            {/* Mobile Menu Spacer or Breadcrumbs */}
@@ -35,6 +36,9 @@ const Layout = () => {
         </header>
 
         <MainContent />
+        
+        {/* Mobile Bottom Navigation */}
+        <MobileBottomNav />
       </div>
 
       {isShareModalOpen && <ShareModal />}
