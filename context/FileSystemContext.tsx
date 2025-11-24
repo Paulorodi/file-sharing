@@ -1,5 +1,6 @@
+
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem } from '../types';
+import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode } from '../types';
 import { analyzeImageContent } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -37,6 +38,9 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [sortOption, setSortOption] = useState<SortOption>('date');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
+  // Selection State
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+
   // Default to dashboard view
   const [activeFilter, setActiveFilter] = useState<'dashboard' | 'all' | 'images' | 'videos' | 'audio' | 'history'>('dashboard');
   
@@ -48,6 +52,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Share State
   const [isShareModalOpen, setShareModalOpen] = useState(false);
   const [isShareModalMinimized, setShareModalMinimized] = useState(false);
+  const [shareViewMode, setShareViewMode] = useState<ShareViewMode>('transfer');
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
 
   // Keep track of created URLs for cleanup to prevent memory leaks
@@ -91,6 +96,20 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addToHistory = useCallback((item: TransferHistoryItem) => {
     setTransferHistory(prev => [item, ...prev]);
+  }, []);
+
+  // Selection Logic
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedFileIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedFileIds(new Set());
   }, []);
 
   const addFiles = useCallback(async (fileList: FileList) => {
@@ -178,6 +197,9 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteFile = (fileId: string) => {
     setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: true } : f));
+    if (selectedFileIds.has(fileId)) {
+        toggleSelection(fileId);
+    }
   };
 
   const restoreFile = (fileId: string) => {
@@ -193,6 +215,9 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       return prev.filter(f => f.id !== fileId);
     });
+    if (selectedFileIds.has(fileId)) {
+        toggleSelection(fileId);
+    }
   };
 
   const createFolder = (name: string) => {
@@ -231,6 +256,8 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isUploading, uploadProgress, uploadStatus,
       isShareModalOpen, setShareModalOpen, addReceivedFile, transferHistory, addToHistory,
       isShareModalMinimized, setShareModalMinimized,
+      shareViewMode, setShareViewMode,
+      selectedFileIds, toggleSelection, clearSelection,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

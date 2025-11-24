@@ -1,3 +1,4 @@
+
 export enum FileType {
   IMAGE = 'image',
   VIDEO = 'video',
@@ -53,6 +54,9 @@ export interface TransferHistoryItem {
 export type ViewMode = 'grid' | 'list';
 export type SortOption = 'name' | 'date' | 'size' | 'type';
 
+// Strict Separation Mode
+export type ShareViewMode = 'transfer' | 'chat';
+
 export interface FileSystemContextType {
   userProfile: UserProfile;
   updateUserProfile: (name: string, avatar: string) => void;
@@ -66,6 +70,11 @@ export interface FileSystemContextType {
   isSidebarOpen: boolean;
   activeFilter: 'dashboard' | 'all' | 'images' | 'videos' | 'audio' | 'history';
   
+  // Selection State
+  selectedFileIds: Set<string>;
+  toggleSelection: (id: string) => void;
+  clearSelection: () => void;
+  
   // Upload State
   isUploading: boolean;
   uploadProgress: number; 
@@ -74,6 +83,11 @@ export interface FileSystemContextType {
   // Share State
   isShareModalOpen: boolean;
   isShareModalMinimized: boolean;
+  
+  // REPLACED shareModalTab with shareViewMode
+  shareViewMode: ShareViewMode; 
+  setShareViewMode: (mode: ShareViewMode) => void;
+  
   setShareModalOpen: (isOpen: boolean) => void;
   setShareModalMinimized: (isMinimized: boolean) => void;
   addReceivedFile: (fileBlob: Blob, meta: { name: string, type: string }) => void;

@@ -5,7 +5,7 @@ import {
   Settings, User, Cpu, RefreshCw, X, MoreVertical, Layout,
   Maximize2, Eye, Share2, Send, Download, Wifi, Smartphone, Check,
   QrCode, ScanLine, Camera, Clock, Zap, Copy, Edit2, Shield, Radio,
-  Minus
+  Minus, MessageSquare
 } from 'lucide-react';
 
 export const Icons = {
@@ -15,5 +15,5 @@ export const Icons = {
   More: MoreVertical, Layout, Expand: Maximize2, Eye,
   Share: Share2, Send, Receive: Download, Download, Wifi, Phone: Smartphone, Check,
   QrCode, Scan: ScanLine, Camera, History: Clock, Speed: Zap, Copy, Edit: Edit2,
-  Shield, Radar: Radio, Minimize: Minus
+  Shield, Radar: Radio, Minimize: Minus, Chat: MessageSquare
 };

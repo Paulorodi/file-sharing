@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useFileSystem } from '../context/FileSystemContext';
 import { Icons } from './Icons';
@@ -6,14 +7,14 @@ export const Sidebar: React.FC = () => {
   const { 
     folders, currentFolderId, setCurrentFolderId, 
     activeFilter, setActiveFilter, isSidebarOpen,
-    createFolder, setShareModalOpen, userProfile, updateUserProfile
+    createFolder, setShareModalOpen, userProfile, updateUserProfile,
+    setShareModalMinimized, setShareViewMode
   } = useFileSystem();
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(userProfile.name);
 
   // On mobile, we hide the sidebar completely in favor of the BottomNav
-  // On desktop, we toggle visibility based on isSidebarOpen
   if (!isSidebarOpen) return null;
 
   const handleCreateFolder = () => {
@@ -24,6 +25,18 @@ export const Sidebar: React.FC = () => {
   const handleSaveProfile = () => {
     updateUserProfile(editName, userProfile.avatar);
     setIsEditingProfile(false);
+  };
+
+  const handleOpenTransfer = () => {
+      setShareModalOpen(true);
+      setShareModalMinimized(false);
+      setShareViewMode('transfer');
+  };
+
+  const handleOpenChat = () => {
+      setShareModalOpen(true);
+      setShareModalMinimized(false);
+      setShareViewMode('chat');
   };
 
   const NavItem = ({ icon: Icon, label, active, onClick, count, colorClass }: any) => (
@@ -41,7 +54,6 @@ export const Sidebar: React.FC = () => {
     </button>
   );
 
-  // Added 'hidden md:flex' to hide on mobile
   return (
     <div className="hidden md:flex w-64 bg-slate-900 border-r border-slate-800 flex-col h-full flex-shrink-0">
       
@@ -104,7 +116,13 @@ export const Sidebar: React.FC = () => {
             icon={Icons.Share} 
             label="Connect & Share" 
             colorClass="text-green-400"
-            onClick={() => setShareModalOpen(true)} 
+            onClick={handleOpenTransfer} 
+          />
+           <NavItem 
+            icon={Icons.Chat} 
+            label="Community Chat" 
+            colorClass="text-blue-400"
+            onClick={handleOpenChat} 
           />
           <NavItem 
             icon={Icons.History} 

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useFileSystem } from '../context/FileSystemContext';
 import { FileCard } from './FileCard';
@@ -10,22 +11,41 @@ export const MainContent: React.FC = () => {
     files, searchQuery, activeFilter, currentFolderId, 
     addFiles, toggleSidebar, folders, userProfile,
     isUploading, uploadProgress, uploadStatus, 
-    setShareModalOpen, transferHistory, setActiveFilter
+    setShareModalOpen, transferHistory, setActiveFilter,
+    setShareModalMinimized, setShareViewMode,
+    selectedFileIds, clearSelection, deleteFile
   } = useFileSystem();
   
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenTransfer = () => {
+      setShareModalOpen(true);
+      setShareModalMinimized(false);
+      setShareViewMode('transfer');
+  };
+
+  const handleShareSelected = () => {
+    setShareModalOpen(true);
+    setShareModalMinimized(false);
+    setShareViewMode('transfer');
+  };
+
+  const handleDeleteSelected = () => {
+    if (confirm(`Delete ${selectedFileIds.size} files?`)) {
+      selectedFileIds.forEach(id => deleteFile(id));
+      clearSelection();
+    }
+  };
 
   // Filter Logic
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase());
     
-    if (activeFilter === 'dashboard') return true; // Used for recent files
+    if (activeFilter === 'dashboard') return true; 
     if (activeFilter === 'history') return false; 
 
     if (currentFolderId) return file.folderId === currentFolderId && matchesSearch;
@@ -59,26 +79,23 @@ export const MainContent: React.FC = () => {
 
   // --- DASHBOARD VIEW ---
   if (activeFilter === 'dashboard') {
-      const recentReceived = transferHistory.filter(t => t.direction === 'received').slice(0, 5);
       const recentFiles = files.filter(f => !f.isDeleted).sort((a,b) => b.createdAt - a.createdAt).slice(0, 8);
 
       return (
-        // Added pb-24 for mobile nav
-        <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto p-6 scroll-smooth pb-24">
+        <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto p-6 scroll-smooth pb-24 relative">
            {/* Header */}
            <div className="flex justify-between items-center mb-8">
                <div>
                    <h1 className="text-2xl font-bold text-white">Welcome, {userProfile.name}</h1>
                    <p className="text-slate-400 text-sm mt-1">Ready to share files today?</p>
                </div>
-               {/* Hidden sidebar button on mobile as we use bottom nav */}
                <button onClick={toggleSidebar} className="hidden lg:block text-slate-400"><Icons.Layout /></button>
            </div>
 
            {/* Quick Actions */}
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
                {/* Send Card */}
-               <div onClick={() => setShareModalOpen(true)} className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-6 cursor-pointer hover:shadow-2xl hover:shadow-blue-500/20 transition-all transform hover:-translate-y-1 relative overflow-hidden group">
+               <div onClick={handleOpenTransfer} className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-6 cursor-pointer hover:shadow-2xl hover:shadow-blue-500/20 transition-all transform hover:-translate-y-1 relative overflow-hidden group">
                    <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity">
                        <Icons.Send size={80} />
                    </div>
@@ -92,7 +109,7 @@ export const MainContent: React.FC = () => {
                </div>
 
                {/* Receive Card */}
-               <div onClick={() => setShareModalOpen(true)} className="bg-gradient-to-br from-green-600 to-emerald-800 rounded-2xl p-6 cursor-pointer hover:shadow-2xl hover:shadow-green-500/20 transition-all transform hover:-translate-y-1 relative overflow-hidden group">
+               <div onClick={handleOpenTransfer} className="bg-gradient-to-br from-green-600 to-emerald-800 rounded-2xl p-6 cursor-pointer hover:shadow-2xl hover:shadow-green-500/20 transition-all transform hover:-translate-y-1 relative overflow-hidden group">
                    <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity">
                        <Icons.Download size={80} />
                    </div>
@@ -150,6 +167,27 @@ export const MainContent: React.FC = () => {
            {/* Hidden Inputs for Upload */}
            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
            
+           {/* Floating Action Bar for Selection in Grid View */}
+           {selectedFileIds.size > 0 && (
+               <div className="fixed bottom-20 left-4 right-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-96 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-2xl flex items-center justify-between z-50 animate-in slide-in-from-bottom-6">
+                   <div className="flex items-center px-2">
+                       <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full mr-2">{selectedFileIds.size}</span>
+                       <span className="text-sm font-medium text-slate-200">Selected</span>
+                   </div>
+                   <div className="flex space-x-2">
+                       <button onClick={clearSelection} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" title="Cancel">
+                           <Icons.Close size={18} />
+                       </button>
+                       <button onClick={handleDeleteSelected} className="flex items-center px-3 py-2 bg-slate-700 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-xl transition-colors text-xs font-bold">
+                           <Icons.Trash size={16} className="mr-1" /> Delete
+                       </button>
+                       <button onClick={handleShareSelected} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors text-xs font-bold shadow-lg shadow-blue-900/20">
+                           <Icons.Share size={16} className="mr-1" /> Share
+                       </button>
+                   </div>
+               </div>
+           )}
+
            {isUploading && (
              <div className="fixed bottom-24 right-6 z-50 bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-2xl w-80 animate-in slide-in-from-bottom-5">
                <div className="flex justify-between mb-2 text-sm text-slate-200"><span>Uploading...</span><span>{uploadStatus}</span></div>
@@ -164,7 +202,6 @@ export const MainContent: React.FC = () => {
   // --- HISTORY VIEW ---
   if (activeFilter === 'history') {
       return (
-          // Added pb-24 for mobile nav
           <div className="flex-1 bg-slate-950 p-6 overflow-y-auto pb-24">
               <h2 className="text-2xl font-bold text-white mb-6">Transfer History</h2>
               <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -241,6 +278,28 @@ export const MainContent: React.FC = () => {
           </>
         )}
       </div>
+      
+       {/* Floating Action Bar for Selection in Grid View */}
+       {selectedFileIds.size > 0 && (
+           <div className="fixed bottom-20 left-4 right-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-96 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-2xl flex items-center justify-between z-50 animate-in slide-in-from-bottom-6">
+               <div className="flex items-center px-2">
+                   <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full mr-2">{selectedFileIds.size}</span>
+                   <span className="text-sm font-medium text-slate-200">Selected</span>
+               </div>
+               <div className="flex space-x-2">
+                   <button onClick={clearSelection} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" title="Cancel">
+                       <Icons.Close size={18} />
+                   </button>
+                   <button onClick={handleDeleteSelected} className="flex items-center px-3 py-2 bg-slate-700 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-xl transition-colors text-xs font-bold">
+                       <Icons.Trash size={16} className="mr-1" /> Delete
+                   </button>
+                   <button onClick={handleShareSelected} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors text-xs font-bold shadow-lg shadow-blue-900/20">
+                       <Icons.Share size={16} className="mr-1" /> Share
+                   </button>
+               </div>
+           </div>
+       )}
+
       {selectedFile && <FilePreview file={selectedFile} onClose={() => setSelectedFile(null)} />}
     </div>
   );

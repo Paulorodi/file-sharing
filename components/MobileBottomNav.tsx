@@ -1,9 +1,27 @@
+
 import React from 'react';
 import { useFileSystem } from '../context/FileSystemContext';
 import { Icons } from './Icons';
 
 export const MobileBottomNav: React.FC = () => {
-  const { activeFilter, setActiveFilter, setShareModalOpen, currentFolderId, setCurrentFolderId } = useFileSystem();
+  const { 
+    activeFilter, setActiveFilter, 
+    setShareModalOpen, setShareModalMinimized, 
+    currentFolderId, setCurrentFolderId,
+    setShareViewMode, isShareModalOpen, shareViewMode
+  } = useFileSystem();
+
+  const handleOpenTransfer = () => {
+      setShareModalOpen(true);
+      setShareModalMinimized(false);
+      setShareViewMode('transfer');
+  };
+
+  const handleOpenChat = () => {
+      setShareModalOpen(true);
+      setShareModalMinimized(false);
+      setShareViewMode('chat');
+  };
 
   const NavItem = ({ icon: Icon, label, isActive, onClick, isAction = false }: any) => (
     <button
@@ -38,8 +56,9 @@ export const MobileBottomNav: React.FC = () => {
       <NavItem
         icon={Icons.Layout}
         label="Home"
-        isActive={activeFilter === 'dashboard'}
+        isActive={activeFilter === 'dashboard' && !isShareModalOpen}
         onClick={() => {
+          setShareModalOpen(false);
           setActiveFilter('dashboard');
           setCurrentFolderId(null);
         }}
@@ -47,38 +66,40 @@ export const MobileBottomNav: React.FC = () => {
       <NavItem
         icon={Icons.Folder}
         label="Files"
-        isActive={activeFilter === 'all' || activeFilter === 'images' || activeFilter === 'videos' || !!currentFolderId}
+        isActive={!isShareModalOpen && (activeFilter === 'all' || activeFilter === 'images' || activeFilter === 'videos' || !!currentFolderId)}
         onClick={() => {
+          setShareModalOpen(false);
           setActiveFilter('all');
           setCurrentFolderId(null);
         }}
       />
       
-      {/* Central Action Button for Sharing */}
+      {/* Transfer Button */}
       <NavItem
         icon={Icons.Share}
         label="Share"
         isAction={true}
-        onClick={() => setShareModalOpen(true)}
+        isActive={isShareModalOpen && shareViewMode === 'transfer'}
+        onClick={handleOpenTransfer}
       />
 
       <NavItem
         icon={Icons.History}
         label="History"
-        isActive={activeFilter === 'history'}
+        isActive={!isShareModalOpen && activeFilter === 'history'}
         onClick={() => {
-          setActiveFilter('history');
-          setCurrentFolderId(null);
+            setShareModalOpen(false);
+            setActiveFilter('history');
+            setCurrentFolderId(null);
         }}
       />
-      {/* Re-use Dashboard for profile view since we don't have a dedicated page yet */}
+      
+      {/* Chat Button */}
       <NavItem
-        icon={Icons.User}
-        label="Profile"
-        isActive={false} 
-        onClick={() => {
-            setActiveFilter('dashboard');
-        }}
+        icon={Icons.Chat}
+        label="Chat"
+        isActive={isShareModalOpen && shareViewMode === 'chat'}
+        onClick={handleOpenChat}
       />
     </div>
   );
