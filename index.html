@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NeuroFile Local Manager</title>
+    <title>NeuroShare - P2P File Sharing</title>
+    <!-- Tailwind CSS CDN (Keep for simplicity, though npm install is recommended for production speed) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -17,19 +18,23 @@
   <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
-    "peerjs": "https://esm.sh/peerjs@1.5.2",
-    "qrcode": "https://esm.sh/qrcode@1.5.3",
-    "jsqr": "https://esm.sh/jsqr@1.4.0"
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "qrcode": "https://aistudiocdn.com/qrcode@^1.5.4",
+    "jsqr": "https://aistudiocdn.com/jsqr@^1.4.0",
+    "peerjs": "https://aistudiocdn.com/peerjs@^1.5.5"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <!-- THIS WAS MISSING: The entry point for Vite -->
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
