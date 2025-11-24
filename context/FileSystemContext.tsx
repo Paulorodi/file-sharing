@@ -47,6 +47,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Share State
   const [isShareModalOpen, setShareModalOpen] = useState(false);
+  const [isShareModalMinimized, setShareModalMinimized] = useState(false);
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
 
   // Keep track of created URLs for cleanup to prevent memory leaks
@@ -229,6 +230,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       files, folders, currentFolderId, searchQuery, viewMode, sortOption, isSidebarOpen, activeFilter,
       isUploading, uploadProgress, uploadStatus,
       isShareModalOpen, setShareModalOpen, addReceivedFile, transferHistory, addToHistory,
+      isShareModalMinimized, setShareModalMinimized,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

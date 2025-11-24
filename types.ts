@@ -73,7 +73,9 @@ export interface FileSystemContextType {
 
   // Share State
   isShareModalOpen: boolean;
+  isShareModalMinimized: boolean;
   setShareModalOpen: (isOpen: boolean) => void;
+  setShareModalMinimized: (isMinimized: boolean) => void;
   addReceivedFile: (fileBlob: Blob, meta: { name: string, type: string }) => void;
   transferHistory: TransferHistoryItem[];
   addToHistory: (item: TransferHistoryItem) => void;

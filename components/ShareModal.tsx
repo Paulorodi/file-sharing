@@ -16,7 +16,7 @@ interface TransferProgress {
 }
 
 export const ShareModal: React.FC = () => {
-  const { setShareModalOpen, files, addReceivedFile, userProfile, addToHistory } = useFileSystem();
+  const { setShareModalOpen, files, addReceivedFile, userProfile, addToHistory, isShareModalMinimized, setShareModalMinimized } = useFileSystem();
   const [mode, setMode] = useState<'send' | 'receive' | 'initial' | 'text'>('initial');
   const [peerId, setPeerId] = useState<string>('');
   const [connectId, setConnectId] = useState('');
@@ -278,6 +278,49 @@ export const ShareModal: React.FC = () => {
     if (streamRef.current) requestAnimationFrame(tickScanner);
   };
 
+  // MINIMIZED VIEW
+  if (isShareModalMinimized) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[60] animate-in fade-in slide-in-from-bottom-4">
+        <div className="bg-slate-900 border border-blue-500/50 shadow-2xl shadow-blue-900/20 rounded-2xl p-4 flex items-center space-x-4 w-80">
+           <div className={`relative w-10 h-10 rounded-full flex items-center justify-center ${connectedPeer ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+              {connectedPeer ? <Icons.Share size={20} /> : <Icons.Radar size={20} className="animate-spin-slow" />}
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></span>
+           </div>
+           
+           <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-bold text-white truncate">{connectedPeer ? connectedPeerName : 'NeuroShare Active'}</h4>
+              <p className="text-xs text-slate-400 truncate">{status}</p>
+           </div>
+
+           <div className="flex items-center space-x-1">
+              <button 
+                 onClick={() => setShareModalMinimized(false)} 
+                 className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition-colors"
+                 title="Expand"
+              >
+                 <Icons.Expand size={16} />
+              </button>
+              <button 
+                 onClick={() => {
+                     if(confirm("Disconnect and close sharing?")) {
+                        connRef.current?.close();
+                        setShareModalOpen(false);
+                        setShareModalMinimized(false);
+                     }
+                 }} 
+                 className="p-2 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
+                 title="Disconnect"
+              >
+                 <Icons.Close size={16} />
+              </button>
+           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // FULL MODAL VIEW
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in">
       <div className="bg-slate-900 border border-slate-700 w-full max-w-5xl h-[700px] rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row relative">
@@ -303,10 +346,33 @@ export const ShareModal: React.FC = () => {
             </div>
         )}
 
-        {/* Close Button */}
-        <button onClick={() => setShareModalOpen(false)} className="absolute top-4 right-4 p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-full z-10 transition-colors">
-          <Icons.Close size={20} />
-        </button>
+        {/* Window Controls */}
+        <div className="absolute top-4 right-4 z-10 flex items-center space-x-2">
+             <button 
+              onClick={() => setShareModalMinimized(true)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full transition-colors"
+              title="Minimize"
+            >
+              <Icons.Minimize size={20} />
+            </button>
+            <button 
+              onClick={() => {
+                 // If connected, warn before closing
+                 if (connectedPeer) {
+                     if(confirm("This will disconnect your session. Continue?")) {
+                        connRef.current?.close();
+                        setShareModalOpen(false);
+                     }
+                 } else {
+                     setShareModalOpen(false);
+                 }
+              }}
+              className="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-full transition-colors"
+              title="Close"
+            >
+              <Icons.Close size={20} />
+            </button>
+        </div>
 
         {/* Left Sidebar: Connection Status */}
         <div className="w-full md:w-80 bg-slate-950 p-6 border-r border-slate-800 flex flex-col">
