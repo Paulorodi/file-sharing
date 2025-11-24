@@ -1,7 +1,13 @@
-
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode, ChatMessage } from '../types';
 import { analyzeImageContent } from '../services/geminiService';
+import { 
+    isFirebaseReady, 
+    registerUserInCloud, 
+    subscribeToCommunityChat, 
+    sendCloudMessage, 
+    deleteCloudMessage 
+} from '../services/firebase';
 import { v4 as uuidv4 } from 'uuid';
 
 // Helper for ID generation
@@ -34,6 +40,8 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const newProfile = { ...userProfile, name, avatar };
     setUserProfile(newProfile);
     localStorage.setItem('neuro_user', JSON.stringify(newProfile));
+    // Update in Cloud
+    if (isFirebaseReady()) registerUserInCloud(newProfile);
   };
 
   const enableAdminMode = useCallback(() => {
@@ -45,7 +53,13 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       setUserProfile(newProfile);
       localStorage.setItem('neuro_user', JSON.stringify(newProfile));
+      if (isFirebaseReady()) registerUserInCloud(newProfile);
   }, [userProfile]);
+
+  // Register on Start
+  useEffect(() => {
+      if (isFirebaseReady()) registerUserInCloud(userProfile);
+  }, []);
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<Folder[]>([
@@ -58,67 +72,62 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortOption, setSortOption] = useState<SortOption>('date');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  
-  // Selection State
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
-
-  // Default to dashboard view
   const [activeFilter, setActiveFilter] = useState<'dashboard' | 'all' | 'images' | 'videos' | 'audio' | 'history'>('dashboard');
-  
-  // Upload State
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
-
-  // Share State
   const [isShareModalOpen, setShareModalOpen] = useState(false);
   const [isShareModalMinimized, setShareModalMinimized] = useState(false);
   const [shareViewMode, setShareViewMode] = useState<ShareViewMode>('transfer');
   const [transferHistory, setTransferHistory] = useState<TransferHistoryItem[]>([]);
-  
-  // Auto-Connect ID from URL
   const [autoConnectId, setAutoConnectId] = useState<string | null>(null);
 
-  // Parse URL for connection requests on startup
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       const connectId = params.get('connect');
       if (connectId) {
-          console.log("Found connect ID in URL:", connectId);
           setAutoConnectId(connectId);
           setShareModalOpen(true);
           setShareViewMode('transfer');
-          // Clear URL to prevent re-connect loop on refresh
           window.history.replaceState({}, '', window.location.pathname);
       }
   }, []);
 
-  // Global Chat History Persistence
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
-      try {
-          const saved = localStorage.getItem('neuro_chat_secure_v1');
-          return saved ? JSON.parse(saved) : [];
-      } catch (e) { return []; }
-  });
+  // --- CLOUD CHAT LOGIC ---
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
-  // Persist chat on change
+  // Subscribe to Firebase
   useEffect(() => {
-      localStorage.setItem('neuro_chat_secure_v1', JSON.stringify(chatHistory));
-  }, [chatHistory]);
+      if (isFirebaseReady()) {
+          const unsubscribe = subscribeToCommunityChat((messages) => {
+              setChatHistory(messages);
+          });
+          return () => unsubscribe();
+      }
+  }, []);
 
   const addChatMessage = useCallback((msg: ChatMessage) => {
-      setChatHistory(prev => {
-          if (prev.some(m => m.id === msg.id)) return prev;
-          const updated = [...prev, msg];
-          return updated.slice(-50); 
-      });
+      if (msg.isCommunity && isFirebaseReady()) {
+          sendCloudMessage(msg);
+      } else {
+          // Fallback to local state if offline or DM
+          setChatHistory(prev => [...prev, msg]);
+      }
   }, []);
 
   const deleteChatMessage = useCallback((msgId: string) => {
-      setChatHistory(prev => prev.filter(msg => msg.id !== msgId));
+      if (isFirebaseReady()) {
+          deleteCloudMessage(msgId);
+      } else {
+          setChatHistory(prev => prev.filter(msg => msg.id !== msgId));
+      }
   }, []);
 
   const syncChatHistory = useCallback((remoteMessages: ChatMessage[]) => {
+      // If Cloud is active, ignore P2P sync for community chat to prevent conflicts
+      if (isFirebaseReady()) return;
+
       setChatHistory(prev => {
           const existingIds = new Set(prev.map(m => m.id));
           const newMessages = remoteMessages.filter(m => !existingIds.has(m.id));
@@ -128,13 +137,9 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
   }, []);
 
-  // Keep track of created URLs for cleanup
   const objectUrlsRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
-    return () => {
-      objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
-    };
+    return () => { objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url)); };
   }, []);
 
   const detectFileType = (mime: string): FileType => {
@@ -148,20 +153,10 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addReceivedFile = useCallback((fileBlob: Blob, meta: { name: string, type: string }) => {
     const url = URL.createObjectURL(fileBlob);
     objectUrlsRef.current.add(url);
-    
     const newFile: FileItem = {
-      id: generateId(),
-      name: meta.name,
-      type: detectFileType(meta.type),
-      mimeType: meta.type,
-      size: fileBlob.size,
-      url: url,
-      createdAt: Date.now(),
-      folderId: null, 
-      isDeleted: false,
-      aiData: undefined
+      id: generateId(), name: meta.name, type: detectFileType(meta.type), mimeType: meta.type,
+      size: fileBlob.size, url: url, createdAt: Date.now(), folderId: null, isDeleted: false, aiData: undefined
     };
-    
     setFiles(prev => [newFile, ...prev]);
   }, []);
 
@@ -170,146 +165,50 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   const toggleSelection = useCallback((id: string) => {
-    setSelectedFileIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      return newSet;
-    });
+    setSelectedFileIds(prev => { const newSet = new Set(prev); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); return newSet; });
   }, []);
 
-  const clearSelection = useCallback(() => {
-    setSelectedFileIds(new Set());
-  }, []);
+  const clearSelection = useCallback(() => { setSelectedFileIds(new Set()); }, []);
 
   const addFiles = useCallback(async (fileList: FileList) => {
-    setIsUploading(true);
-    setUploadProgress(0);
-    
-    const allFiles = Array.from(fileList);
-    const totalFiles = allFiles.length;
+    setIsUploading(true); setUploadProgress(0);
+    const allFiles = Array.from(fileList); const totalFiles = allFiles.length;
     const CHUNK_SIZE = 50; 
-    
-    let localFolders = [...folders];
-    let foldersChanged = false;
-    let newFilesAccumulator: FileItem[] = [];
-
+    let localFolders = [...folders]; let foldersChanged = false; let newFilesAccumulator: FileItem[] = [];
     const processBatch = async (startIndex: number) => {
         const endIndex = Math.min(startIndex + CHUNK_SIZE, totalFiles);
         const chunk = allFiles.slice(startIndex, endIndex);
-
         const chunkItems = chunk.map(file => {
             let targetFolderId = currentFolderId;
-
             if (targetFolderId === null && file.webkitRelativePath) {
                 const pathParts = file.webkitRelativePath.split('/');
                 if (pathParts.length > 1) {
                     const rootFolderName = pathParts[0];
                     let folder = localFolders.find(f => f.name === rootFolderName);
-                    if (!folder) {
-                        folder = { id: generateId(), name: rootFolderName };
-                        localFolders.push(folder);
-                        foldersChanged = true;
-                    }
+                    if (!folder) { folder = { id: generateId(), name: rootFolderName }; localFolders.push(folder); foldersChanged = true; }
                     targetFolderId = folder.id;
                 }
             }
-
-            const url = URL.createObjectURL(file);
-            objectUrlsRef.current.add(url);
-
-            return {
-                id: generateId(),
-                name: file.name,
-                type: detectFileType(file.type),
-                mimeType: file.type,
-                size: file.size,
-                url: url,
-                createdAt: Date.now(),
-                folderId: targetFolderId,
-                isDeleted: false,
-                aiData: undefined
-            };
+            const url = URL.createObjectURL(file); objectUrlsRef.current.add(url);
+            return { id: generateId(), name: file.name, type: detectFileType(file.type), mimeType: file.type, size: file.size, url: url, createdAt: Date.now(), folderId: targetFolderId, isDeleted: false, aiData: undefined };
         });
-
         newFilesAccumulator.push(...chunkItems);
-        const processed = endIndex;
-        const percent = Math.round((processed / totalFiles) * 100);
-        setUploadProgress(percent);
-        setUploadStatus(`${processed} / ${totalFiles}`);
+        setUploadProgress(Math.round((endIndex / totalFiles) * 100));
+        setUploadStatus(`${endIndex} / ${totalFiles}`);
         await new Promise(resolve => setTimeout(resolve, 0));
-        if (endIndex < totalFiles) {
-            await processBatch(endIndex);
-        }
+        if (endIndex < totalFiles) await processBatch(endIndex);
     };
-
-    try {
-        await processBatch(0);
-        if (foldersChanged) {
-            setFolders(localFolders);
-        }
-        setFiles(prev => [...prev, ...newFilesAccumulator]);
-    } catch (error) {
-        console.error("Upload error:", error);
-    } finally {
-        setIsUploading(false);
-        setUploadStatus('Complete');
-        setTimeout(() => {
-            setUploadStatus('');
-            setUploadProgress(0);
-        }, 3000);
-    }
-
+    try { await processBatch(0); if (foldersChanged) setFolders(localFolders); setFiles(prev => [...prev, ...newFilesAccumulator]); } catch (error) { console.error("Upload error:", error); } finally { setIsUploading(false); setUploadStatus('Complete'); setTimeout(() => { setUploadStatus(''); setUploadProgress(0); }, 3000); }
   }, [currentFolderId, folders]);
 
-  const deleteFile = (fileId: string) => {
-    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: true } : f));
-    if (selectedFileIds.has(fileId)) toggleSelection(fileId);
-  };
-
-  const restoreFile = (fileId: string) => {
-    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: false } : f));
-  };
-
-  const permanentlyDeleteFile = (fileId: string) => {
-    setFiles(prev => {
-      const file = prev.find(f => f.id === fileId);
-      if (file) {
-        URL.revokeObjectURL(file.url);
-        objectUrlsRef.current.delete(file.url);
-      }
-      return prev.filter(f => f.id !== fileId);
-    });
-    if (selectedFileIds.has(fileId)) toggleSelection(fileId);
-  };
-
-  const createFolder = (name: string) => {
-    setFolders(prev => [...prev, { id: generateId(), name }]);
-  };
-
-  const moveToFolder = (fileId: string, folderId: string | null) => {
-    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, folderId } : f));
-  };
-
+  const deleteFile = (fileId: string) => { setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: true } : f)); if (selectedFileIds.has(fileId)) toggleSelection(fileId); };
+  const restoreFile = (fileId: string) => { setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isDeleted: false } : f)); };
+  const permanentlyDeleteFile = (fileId: string) => { setFiles(prev => { const file = prev.find(f => f.id === fileId); if (file) { URL.revokeObjectURL(file.url); objectUrlsRef.current.delete(file.url); } return prev.filter(f => f.id !== fileId); }); if (selectedFileIds.has(fileId)) toggleSelection(fileId); };
+  const createFolder = (name: string) => { setFolders(prev => [...prev, { id: generateId(), name }]); };
+  const moveToFolder = (fileId: string, folderId: string | null) => { setFiles(prev => prev.map(f => f.id === fileId ? { ...f, folderId } : f)); };
   const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
-
-  const analyzeFileWithAI = async (fileId: string) => {
-    const file = files.find(f => f.id === fileId);
-    if (!file || file.type !== FileType.IMAGE) return;
-    try {
-      const data = await analyzeImageContent(file.url, file.mimeType);
-      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, aiData: data } : f));
-    } catch (e) {
-      console.error("Analysis failed", e);
-    }
-  };
-
-  const analyzeAllFiles = async () => {
-    const imagesToAnalyze = files.filter(f => f.type === FileType.IMAGE && !f.aiData && !f.isDeleted);
-    for (const file of imagesToAnalyze) {
-      await analyzeFileWithAI(file.id);
-    }
-  };
+  const analyzeFileWithAI = async (fileId: string) => { const file = files.find(f => f.id === fileId); if (!file || file.type !== FileType.IMAGE) return; try { const data = await analyzeImageContent(file.url, file.mimeType); setFiles(prev => prev.map(f => f.id === fileId ? { ...f, aiData: data } : f)); } catch (e) { console.error("Analysis failed", e); } };
+  const analyzeAllFiles = async () => { const imagesToAnalyze = files.filter(f => f.type === FileType.IMAGE && !f.aiData && !f.isDeleted); for (const file of imagesToAnalyze) { await analyzeFileWithAI(file.id); } };
 
   return (
     <FileSystemContext.Provider value={{
@@ -317,11 +216,10 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       files, folders, currentFolderId, searchQuery, viewMode, sortOption, isSidebarOpen, activeFilter,
       isUploading, uploadProgress, uploadStatus,
       isShareModalOpen, setShareModalOpen, addReceivedFile, transferHistory, addToHistory,
-      isShareModalMinimized, setShareModalMinimized,
-      shareViewMode, setShareViewMode,
+      isShareModalMinimized, setShareModalMinimized, shareViewMode, setShareViewMode,
       selectedFileIds, toggleSelection, clearSelection,
       chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
-      autoConnectId, // Exposed to ShareModal
+      autoConnectId,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles
