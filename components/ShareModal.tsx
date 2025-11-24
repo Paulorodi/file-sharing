@@ -47,10 +47,7 @@ export const ShareModal: React.FC = () => {
   const [transferTab, setTransferTab] = useState<'dashboard' | 'scanner' | 'files' | 'recipients'>('dashboard');
   const [showLargeQR, setShowLargeQR] = useState(false); 
   
-  // NEW: Success Popup State
-  const [showSuccessPopup, setShowSuccessPopup] = useState<{ visible: boolean, name: string }>({ visible: false, name: '' });
-
-  // Recipient Selection State
+  // State for Recipient Selection
   const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<string>>(new Set());
 
   // Peers & Chat
@@ -89,12 +86,6 @@ export const ShareModal: React.FC = () => {
   const saveKnownPeer = (id: string, name: string) => { const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]'); const idx = known.findIndex((p:any) => p.id === id); if(idx >= 0) { known[idx].name = name; known[idx].lastSeen = Date.now(); } else { known.push({ id, name, lastSeen: Date.now() }); } localStorage.setItem('neuro_known_peers', JSON.stringify(known)); setKnownPeers(known); };
   const connectToKnownPeers = () => { loadKnownPeers().forEach((p: any) => { if (p.id !== myPeerId && !connectionsMap.current.has(p.id)) connectToPeer(p.id); }); };
   const copyConnectionLink = () => { navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?connect=${myPeerId}`); alert("Link copied!"); };
-
-  // Show success popup helper
-  const triggerSuccess = (peerName: string) => {
-      setShowSuccessPopup({ visible: true, name: peerName });
-      setTimeout(() => setShowSuccessPopup({ visible: false, name: '' }), 3000);
-  };
 
   useEffect(() => { 
       if (shareViewMode === 'transfer' && selectedFileIds.size > 0) {
@@ -136,22 +127,11 @@ export const ShareModal: React.FC = () => {
           const newPeer = { id: data.id || peerId, name: displayName, conn, unread: 0 };
           setPeers(prev => { if (prev.some(p => p.id === newPeer.id)) return prev; return [...prev, newPeer]; });
           saveKnownPeer(data.id || peerId, displayName);
-          
-          // NEW: Trigger Success Popup on Connection
-          triggerSuccess(displayName);
-          
-          // If we were scanning, stop scanning and return to dashboard
-          if (transferTab === 'scanner') {
-              stopScanner();
-              setTransferTab('dashboard');
-          }
-
       } else if (data.type === 'chat') {
           const msg: ChatMessage = { id: data.id, senderId: data.senderId, senderName: data.senderName, content: data.content, timestamp: data.timestamp, isCommunity: false };
           setDmMessages(prev => ({ ...prev, [peerId]: [...(prev[peerId] || []), msg] }));
       } else if (data.type === 'file-transfer') {
-          const mimeType = data.meta.type || 'application/octet-stream';
-          addReceivedFile(new Blob([data.file], { type: mimeType }), { name: data.meta.name, type: mimeType });
+          addReceivedFile(new Blob([data.file], { type: data.meta.type }), { name: data.meta.name, type: data.meta.type });
           setTransfers(prev => [...prev, { id: Date.now().toString(), fileName: data.meta.name, progress: 100, status: 'completed', speed: 'Done', totalSize: data.file.size, transferred: data.file.size, peerId }]);
       }
   };
@@ -164,7 +144,14 @@ export const ShareModal: React.FC = () => {
       const timestamp = Date.now();
       const msgId = Math.random().toString(36).substring(2) + Date.now();
       const msg: ChatMessage = { id: msgId, senderId: myPeerId || 'me', senderName: userProfile.name, content: textInput, timestamp, isCommunity: activeChatId === 'community' };
-      if (activeChatId === 'community') { addChatMessage(msg); } else { setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] })); const target = peers.find(p => p.id === activeChatId); if(target) target.conn.send({ type: 'chat', ...msg }); }
+      
+      if (activeChatId === 'community') {
+          addChatMessage(msg); 
+      } else {
+          setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
+          const target = peers.find(p => p.id === activeChatId);
+          if(target) target.conn.send({ type: 'chat', ...msg });
+      }
       setTextInput('');
   };
 
@@ -204,17 +191,6 @@ export const ShareModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in">
-        {/* CONNECTION SUCCESS POPUP */}
-        {showSuccessPopup.visible && (
-            <div className="absolute inset-0 z-[80] flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in zoom-in">
-                <div className="bg-green-500 rounded-full p-4 mb-4 shadow-lg shadow-green-500/50">
-                    <Icons.Check size={48} className="text-white" />
-                </div>
-                <h2 className="text-2xl font-bold text-white">Connected!</h2>
-                <p className="text-green-400 mt-2">Successfully paired with {showSuccessPopup.name}</p>
-            </div>
-        )}
-
         {/* Large QR */}
         {showLargeQR && qrCodeUrl && (
             <div className="absolute inset-0 z-[70] bg-black/95 flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
@@ -300,7 +276,8 @@ export const ShareModal: React.FC = () => {
                                  <div key={msg.id} className={`flex ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
                                      {msg.isSystem ? <span className="bg-slate-800 text-slate-500 text-[10px] px-2 py-1 rounded-full">{msg.content}</span> : (
                                          <div className="relative group">
-                                             <div className={`max-w-[80%] p-3 rounded-xl break-words whitespace-pre-wrap ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                             {/* Chat Bubble with specific sizing instructions */}
+                                             <div className={`min-w-[30%] max-w-[75%] px-4 py-3 rounded-[20px] break-words whitespace-pre-wrap ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
                                                  {activeChatId === 'community' && (msg.senderId !== myPeerId && msg.senderId !== 'me') && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
                                                  <p className="text-sm leading-relaxed">{msg.content}</p>
                                                  <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>

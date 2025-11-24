@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useFileSystem } from '../context/FileSystemContext';
 import { FileCard } from './FileCard';
 import { FilePreview } from './FilePreview';
 import { Icons } from './Icons';
-import { FileItem } from '../types';
+import { FileItem, SortOption } from '../types';
 
 export const MainContent: React.FC = () => {
   const { 
@@ -13,11 +12,13 @@ export const MainContent: React.FC = () => {
     isUploading, uploadProgress, uploadStatus, 
     setShareModalOpen, transferHistory, setActiveFilter,
     setShareModalMinimized, setShareViewMode,
-    selectedFileIds, clearSelection, deleteFile
+    selectedFileIds, clearSelection, deleteFile, selectAll,
+    sortOption, setSortOption
   } = useFileSystem();
   
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -58,6 +59,25 @@ export const MainContent: React.FC = () => {
     }
   });
 
+  // Sorting Logic
+  const sortedFiles = [...filteredFiles].sort((a, b) => {
+      switch (sortOption) {
+          case 'date': return b.createdAt - a.createdAt; // Newest first
+          case 'size': return b.size - a.size; // Largest first
+          case 'type': return a.type.localeCompare(b.type); // Group by type
+          case 'name': return a.name.localeCompare(b.name); // A-Z
+          default: return 0;
+      }
+  });
+
+  const handleSelectAll = () => {
+      if (selectedFileIds.size === sortedFiles.length && sortedFiles.length > 0) {
+          clearSelection();
+      } else {
+          selectAll(sortedFiles.map(f => f.id));
+      }
+  };
+
   // Infinite Scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -93,7 +113,7 @@ export const MainContent: React.FC = () => {
            </div>
 
            {/* Quick Actions */}
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mb-10">
                {/* Send Card */}
                <div onClick={handleOpenTransfer} className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-6 cursor-pointer hover:shadow-2xl hover:shadow-blue-500/20 transition-all transform hover:-translate-y-1 relative overflow-hidden group">
                    <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity">
@@ -121,29 +141,8 @@ export const MainContent: React.FC = () => {
                        <p className="text-green-100 text-sm mt-1 opacity-80">Ready to accept files</p>
                    </div>
                </div>
-
-                {/* Storage Stats */}
-               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                   <h3 className="text-slate-200 font-semibold mb-4 flex items-center">
-                       <Icons.Folder className="mr-2 text-purple-400" size={18} /> Storage
-                   </h3>
-                   <div className="space-y-4">
-                       <div>
-                           <div className="flex justify-between text-xs text-slate-400 mb-1">
-                               <span>Images</span>
-                               <span>{files.filter(f => f.type === 'image').length} Files</span>
-                           </div>
-                           <div className="w-full bg-slate-800 h-2 rounded-full"><div className="bg-purple-500 h-full rounded-full" style={{width: '45%'}}></div></div>
-                       </div>
-                       <div>
-                           <div className="flex justify-between text-xs text-slate-400 mb-1">
-                               <span>Videos</span>
-                               <span>{files.filter(f => f.type === 'video').length} Files</span>
-                           </div>
-                           <div className="w-full bg-slate-800 h-2 rounded-full"><div className="bg-pink-500 h-full rounded-full" style={{width: '30%'}}></div></div>
-                       </div>
-                   </div>
-               </div>
+               
+               {/* REMOVED STORAGE STATS AS REQUESTED */}
            </div>
 
            {/* Recent Files */}
@@ -167,27 +166,6 @@ export const MainContent: React.FC = () => {
            {/* Hidden Inputs for Upload */}
            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
            
-           {/* Floating Action Bar for Selection in Grid View */}
-           {selectedFileIds.size > 0 && (
-               <div className="fixed bottom-20 left-4 right-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-96 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-2xl flex items-center justify-between z-50 animate-in slide-in-from-bottom-6">
-                   <div className="flex items-center px-2">
-                       <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full mr-2">{selectedFileIds.size}</span>
-                       <span className="text-sm font-medium text-slate-200">Selected</span>
-                   </div>
-                   <div className="flex space-x-2">
-                       <button onClick={clearSelection} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" title="Cancel">
-                           <Icons.Close size={18} />
-                       </button>
-                       <button onClick={handleDeleteSelected} className="flex items-center px-3 py-2 bg-slate-700 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-xl transition-colors text-xs font-bold">
-                           <Icons.Trash size={16} className="mr-1" /> Delete
-                       </button>
-                       <button onClick={handleShareSelected} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors text-xs font-bold shadow-lg shadow-blue-900/20">
-                           <Icons.Share size={16} className="mr-1" /> Share
-                       </button>
-                   </div>
-               </div>
-           )}
-
            {isUploading && (
              <div className="fixed bottom-24 right-6 z-50 bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-2xl w-80 animate-in slide-in-from-bottom-5">
                <div className="flex justify-between mb-2 text-sm text-slate-200"><span>Uploading...</span><span>{uploadStatus}</span></div>
@@ -205,37 +183,11 @@ export const MainContent: React.FC = () => {
           <div className="flex-1 bg-slate-950 p-6 overflow-y-auto pb-24">
               <h2 className="text-2xl font-bold text-white mb-6">Transfer History</h2>
               <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-                  {transferHistory.length === 0 ? (
-                      <div className="p-10 text-center text-slate-500">No transfers yet.</div>
-                  ) : (
+                  {transferHistory.length === 0 ? ( <div className="p-10 text-center text-slate-500">No transfers yet.</div> ) : (
                       <div className="overflow-x-auto">
                           <table className="w-full text-left">
-                              <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase">
-                                  <tr>
-                                      <th className="px-6 py-4">File Name</th>
-                                      <th className="px-6 py-4">Direction</th>
-                                      <th className="px-6 py-4">Peer</th>
-                                      <th className="px-6 py-4">Size</th>
-                                      <th className="px-6 py-4">Time</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-800 text-sm text-slate-300">
-                                  {transferHistory.map(item => (
-                                      <tr key={item.id} className="hover:bg-slate-800/50 transition-colors">
-                                          <td className="px-6 py-4 font-medium max-w-[150px] truncate">{item.fileName}</td>
-                                          <td className="px-6 py-4">
-                                              {item.direction === 'sent' ? (
-                                                  <span className="flex items-center text-blue-400"><Icons.Send size={14} className="mr-2"/> Sent</span>
-                                              ) : (
-                                                  <span className="flex items-center text-green-400"><Icons.Download size={14} className="mr-2"/> Received</span>
-                                              )}
-                                          </td>
-                                          <td className="px-6 py-4">{item.peerName}</td>
-                                          <td className="px-6 py-4">{(item.fileSize / 1024 / 1024).toFixed(2)} MB</td>
-                                          <td className="px-6 py-4 text-slate-500">{new Date(item.timestamp).toLocaleTimeString()}</td>
-                                      </tr>
-                                  ))}
-                              </tbody>
+                              <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase"><tr><th className="px-6 py-4">File Name</th><th className="px-6 py-4">Direction</th><th className="px-6 py-4">Peer</th><th className="px-6 py-4">Size</th><th className="px-6 py-4">Time</th></tr></thead>
+                              <tbody className="divide-y divide-slate-800 text-sm text-slate-300">{transferHistory.map(item => (<tr key={item.id} className="hover:bg-slate-800/50 transition-colors"><td className="px-6 py-4 font-medium max-w-[150px] truncate">{item.fileName}</td><td className="px-6 py-4">{item.direction === 'sent' ? (<span className="flex items-center text-blue-400"><Icons.Send size={14} className="mr-2"/> Sent</span>) : (<span className="flex items-center text-green-400"><Icons.Download size={14} className="mr-2"/> Received</span>)}</td><td className="px-6 py-4">{item.peerName}</td><td className="px-6 py-4">{(item.fileSize / 1024 / 1024).toFixed(2)} MB</td><td className="px-6 py-4 text-slate-500">{new Date(item.timestamp).toLocaleTimeString()}</td></tr>))}</tbody>
                           </table>
                       </div>
                   )}
@@ -245,18 +197,49 @@ export const MainContent: React.FC = () => {
   }
 
   // --- FILE MANAGER VIEW (Default) ---
-  const displayedFiles = filteredFiles.slice(0, visibleCount);
+  const displayedFiles = sortedFiles.slice(0, visibleCount);
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-hidden relative">
       <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/50 backdrop-blur-md sticky top-0 z-20">
         <div className="flex items-center space-x-4">
           <button onClick={toggleSidebar} className="text-slate-400 lg:hidden"><Icons.Layout size={20} /></button>
           <h2 className="text-lg font-semibold text-slate-200">{folderName}</h2>
-          <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{filteredFiles.length} items</span>
+          <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">{sortedFiles.length}</span>
         </div>
-        <div className="flex items-center space-x-3">
+        
+        {/* Tools Area: Sort, Select All, Upload */}
+        <div className="flex items-center space-x-2">
+             {/* Sort Dropdown */}
+             <div className="relative">
+                 <button onClick={() => setIsSortMenuOpen(!isSortMenuOpen)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors" title="Sort">
+                     <Icons.List size={18} />
+                 </button>
+                 {isSortMenuOpen && (
+                     <div className="absolute right-0 mt-2 w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden py-1">
+                         {(['date', 'name', 'size', 'type'] as SortOption[]).map(opt => (
+                             <button 
+                                key={opt} 
+                                onClick={() => { setSortOption(opt); setIsSortMenuOpen(false); }}
+                                className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 ${sortOption === opt ? 'text-blue-400' : 'text-slate-300'}`}
+                             >
+                                {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                             </button>
+                         ))}
+                     </div>
+                 )}
+             </div>
+
+             {/* Select All Toggle */}
+             <button 
+                onClick={handleSelectAll} 
+                className={`p-2 rounded-lg transition-colors ${selectedFileIds.size === sortedFiles.length && sortedFiles.length > 0 ? 'bg-blue-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
+                title="Select All"
+             >
+                 <Icons.Check size={18} />
+             </button>
+
              <button onClick={() => fileInputRef.current?.click()} className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-colors shadow-lg">
-                <Icons.Upload size={18} /><span className="text-sm font-medium">Add Files</span>
+                <Icons.Upload size={18} /><span className="hidden md:inline text-sm font-medium">Add</span>
             </button>
             <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
         </div>
@@ -273,13 +256,13 @@ export const MainContent: React.FC = () => {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {displayedFiles.map(file => <FileCard key={file.id} file={file} onOpen={setSelectedFile} />)}
             </div>
-            {displayedFiles.length < filteredFiles.length && <div ref={loadMoreRef} className="h-20" />}
+            {displayedFiles.length < sortedFiles.length && <div ref={loadMoreRef} className="h-20" />}
             <div className="h-20"></div>
           </>
         )}
       </div>
       
-       {/* Floating Action Bar for Selection in Grid View */}
+       {/* Floating Action Bar */}
        {selectedFileIds.size > 0 && (
            <div className="fixed bottom-20 left-4 right-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-96 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-2xl flex items-center justify-between z-50 animate-in slide-in-from-bottom-6">
                <div className="flex items-center px-2">
@@ -287,15 +270,9 @@ export const MainContent: React.FC = () => {
                    <span className="text-sm font-medium text-slate-200">Selected</span>
                </div>
                <div className="flex space-x-2">
-                   <button onClick={clearSelection} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" title="Cancel">
-                       <Icons.Close size={18} />
-                   </button>
-                   <button onClick={handleDeleteSelected} className="flex items-center px-3 py-2 bg-slate-700 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-xl transition-colors text-xs font-bold">
-                       <Icons.Trash size={16} className="mr-1" /> Delete
-                   </button>
-                   <button onClick={handleShareSelected} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors text-xs font-bold shadow-lg shadow-blue-900/20">
-                       <Icons.Share size={16} className="mr-1" /> Share
-                   </button>
+                   <button onClick={clearSelection} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" title="Cancel"><Icons.Close size={18} /></button>
+                   <button onClick={handleDeleteSelected} className="flex items-center px-3 py-2 bg-slate-700 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-xl transition-colors text-xs font-bold"><Icons.Trash size={16} className="mr-1" /> Delete</button>
+                   <button onClick={handleShareSelected} className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors text-xs font-bold shadow-lg shadow-blue-900/20"><Icons.Share size={16} className="mr-1" /> Share</button>
                </div>
            </div>
        )}
