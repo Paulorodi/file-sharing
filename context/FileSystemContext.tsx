@@ -10,14 +10,26 @@ const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now()
 const FileSystemContext = createContext<FileSystemContextType | undefined>(undefined);
 
 export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // User Profile
+  // User Profile - Persistent Identity
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('neuro_user');
-    return saved ? JSON.parse(saved) : {
-      id: generateId(),
-      name: `User-${Math.floor(Math.random() * 1000)}`,
-      avatar: '🦊'
+    if (saved) return JSON.parse(saved);
+
+    const joinedAt = Date.now();
+    const id = generateId();
+    // Sequential-style name based on timestamp
+    const name = `User ${joinedAt.toString().slice(-4)}`;
+    
+    const newProfile = {
+      id,
+      name,
+      avatar: '👤',
+      isAdmin: false,
+      joinedAt
     };
+    // Save immediately so it persists
+    localStorage.setItem('neuro_user', JSON.stringify(newProfile));
+    return newProfile;
   });
 
   const updateUserProfile = (name: string, avatar: string) => {
@@ -25,6 +37,17 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setUserProfile(newProfile);
     localStorage.setItem('neuro_user', JSON.stringify(newProfile));
   };
+
+  const enableAdminMode = useCallback(() => {
+      const newProfile = { 
+          ...userProfile, 
+          isAdmin: true, 
+          name: `Admin (${userProfile.name.replace('User ', '')})`, 
+          avatar: '🛡️' 
+      };
+      setUserProfile(newProfile);
+      localStorage.setItem('neuro_user', JSON.stringify(newProfile));
+  }, [userProfile]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folders, setFolders] = useState<Folder[]>([
@@ -74,6 +97,10 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (prev.some(m => m.id === msg.id)) return prev;
           return [...prev, msg];
       });
+  }, []);
+
+  const deleteChatMessage = useCallback((msgId: string) => {
+      setChatHistory(prev => prev.filter(msg => msg.id !== msgId));
   }, []);
 
   const syncChatHistory = useCallback((remoteMessages: ChatMessage[]) => {
@@ -283,14 +310,14 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   return (
     <FileSystemContext.Provider value={{
-      userProfile, updateUserProfile,
+      userProfile, updateUserProfile, enableAdminMode,
       files, folders, currentFolderId, searchQuery, viewMode, sortOption, isSidebarOpen, activeFilter,
       isUploading, uploadProgress, uploadStatus,
       isShareModalOpen, setShareModalOpen, addReceivedFile, transferHistory, addToHistory,
       isShareModalMinimized, setShareModalMinimized,
       shareViewMode, setShareViewMode,
       selectedFileIds, toggleSelection, clearSelection,
-      chatHistory, addChatMessage, syncChatHistory,
+      chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

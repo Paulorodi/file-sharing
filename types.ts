@@ -11,6 +11,8 @@ export interface UserProfile {
   id: string;
   name: string;
   avatar: string; // Emoji or URL
+  isAdmin?: boolean; // Admin privilege
+  joinedAt?: number; // For persistent identity
 }
 
 export interface AIAnalysisData {
@@ -70,6 +72,7 @@ export type ShareViewMode = 'transfer' | 'chat';
 export interface FileSystemContextType {
   userProfile: UserProfile;
   updateUserProfile: (name: string, avatar: string) => void;
+  enableAdminMode: () => void;
   
   files: FileItem[];
   folders: Folder[];
@@ -105,6 +108,7 @@ export interface FileSystemContextType {
   // Global Chat State
   chatHistory: ChatMessage[];
   addChatMessage: (msg: ChatMessage) => void;
+  deleteChatMessage: (msgId: string) => void;
   syncChatHistory: (remoteParams: ChatMessage[]) => void;
 
   // Actions

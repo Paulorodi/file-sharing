@@ -26,12 +26,15 @@ interface TransferProgress {
   peerId: string;
 }
 
+const ADMIN_CODE = "admin-39892909";
+
 export const ShareModal: React.FC = () => {
   const { 
       setShareModalOpen, files, addReceivedFile, userProfile, addToHistory, 
       isShareModalMinimized, setShareModalMinimized,
       shareViewMode, selectedFileIds, toggleSelection, clearSelection,
-      chatHistory, addChatMessage, syncChatHistory
+      chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
+      enableAdminMode
   } = useFileSystem();
   
   // --- State ---
@@ -97,12 +100,11 @@ export const ShareModal: React.FC = () => {
   // --- Logic ---
   const handleNewConnection = (conn: DataConnection) => {
       conn.on('open', () => {
-          // Send Handshake + Sync Chat History (Sync Protocol)
           conn.send({ 
               type: 'handshake', 
               name: userProfile.name, 
               id: myPeerId,
-              chatHistory: chatHistory // Send my full history to new peer so they can sync
+              chatHistory: chatHistory 
           });
       });
       conn.on('data', (data: any) => handleIncomingData(conn, data));
@@ -122,7 +124,6 @@ export const ShareModal: React.FC = () => {
           const newPeer = { id: data.id || peerId, name: data.name || 'Unknown', conn, unread: 0 };
           setPeers(prev => prev.find(p => p.id === newPeer.id) ? prev : [...prev, newPeer]);
           
-          // Sync Protocol: Merge received history
           if (data.chatHistory && Array.isArray(data.chatHistory)) {
               syncChatHistory(data.chatHistory);
           }
@@ -138,11 +139,14 @@ export const ShareModal: React.FC = () => {
           };
 
           if (data.isCommunity) {
-              addChatMessage(msg); // Add to global store
+              addChatMessage(msg); 
           } else {
-              // Local DM store
               setDmMessages(prev => ({ ...prev, [peerId]: [...(prev[peerId] || []), msg] }));
           }
+      }
+      else if (data.type === 'delete-message') {
+          // Handle sync deletion
+          deleteChatMessage(data.messageId);
       }
       else if (data.type === 'file-transfer') {
           addReceivedFile(new Blob([data.file]), { name: data.meta.name, type: data.meta.type });
@@ -157,6 +161,15 @@ export const ShareModal: React.FC = () => {
 
   const sendMessage = () => {
       if (!textInput.trim()) return;
+
+      // --- ADMIN CHECK ---
+      if (textInput === ADMIN_CODE) {
+          enableAdminMode();
+          alert("Admin Mode Activated");
+          setTextInput('');
+          return;
+      }
+
       const timestamp = Date.now();
       const msgId = Math.random().toString(36).substring(2) + Date.now();
       
@@ -170,16 +183,23 @@ export const ShareModal: React.FC = () => {
       };
 
       if (activeChatId === 'community') {
-          addChatMessage(msg); // Save locally
-          // Broadcast to ALL peers
+          addChatMessage(msg); 
           peers.forEach(p => p.conn.send({ type: 'chat', ...msg }));
       } else {
-          // DM
           setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
           const target = peers.find(p => p.id === activeChatId);
           if(target) target.conn.send({ type: 'chat', ...msg });
       }
       setTextInput('');
+  };
+
+  const handleDeleteMessage = (msgId: string) => {
+      if (!userProfile.isAdmin) return;
+      if (confirm("Delete this message for everyone?")) {
+          deleteChatMessage(msgId); // Delete local
+          // Broadcast delete to all peers
+          peers.forEach(p => p.conn.send({ type: 'delete-message', messageId: msgId }));
+      }
   };
 
   const sendSelectedFiles = async () => {
@@ -229,13 +249,11 @@ export const ShareModal: React.FC = () => {
 
   if (isShareModalMinimized) return null;
 
-  // --- Render View Selection ---
   const messagesToRender = activeChatId === 'community' ? chatHistory : (dmMessages[activeChatId] || []);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in">
         
-        {/* Mobile Minimize/Close Controls */}
         <div className="absolute top-4 right-4 z-50 flex items-center space-x-2">
              <button onClick={() => setShareModalMinimized(true)} className="p-2 bg-slate-800 text-slate-400 rounded-full"><Icons.Minimize size={20} /></button>
              {shareViewMode === 'transfer' && (
@@ -259,7 +277,6 @@ export const ShareModal: React.FC = () => {
                          <h2 className="text-lg font-bold text-white">{peers.length > 0 ? 'Connected' : 'Looking for devices...'}</h2>
                          <p className="text-xs text-slate-500 mb-4">{myPeerId}</p>
 
-                         {/* Quick Scan/Connect */}
                          {transferTab === 'dashboard' && (
                              <div className="flex space-x-3 w-full max-w-xs">
                                  <button onClick={startScanner} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg flex items-center justify-center space-x-2 text-sm font-bold shadow-lg">
@@ -291,7 +308,6 @@ export const ShareModal: React.FC = () => {
 
                     {transferTab === 'dashboard' && (
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                             {/* Transfer Actions */}
                              <div className="grid grid-cols-2 gap-4">
                                  <button onClick={() => setTransferTab('files')} className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center hover:bg-slate-750 transition-colors border border-slate-700">
                                      <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2"><Icons.Send size={24} /></div>
@@ -303,7 +319,6 @@ export const ShareModal: React.FC = () => {
                                  </div>
                              </div>
 
-                             {/* History List */}
                              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800">
                                  <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3>
                                  {transfers.length === 0 ? (
@@ -356,11 +371,11 @@ export const ShareModal: React.FC = () => {
             {/* === CHAT VIEW === */}
             {shareViewMode === 'chat' && (
                 <div className="flex w-full h-full bg-slate-900">
-                    {/* Sidebar (Always visible on Desktop, visible on Mobile if no active chat or toggled) */}
+                    {/* Sidebar */}
                     <div className={`w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950 ${activeChatId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
                         <div className="p-4 h-16 border-b border-slate-800 flex items-center justify-between">
                             <h2 className="font-bold text-white text-lg">Chats</h2>
-                            <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-slate-300 border border-slate-700">{userProfile.avatar}</div>
+                            <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-slate-300 border border-slate-700 text-xl select-none">{userProfile.avatar}</div>
                         </div>
                         <div className="flex-1 overflow-y-auto">
                             <button onClick={() => setActiveChatId('community')} className={`w-full p-4 flex items-center space-x-3 hover:bg-slate-900 border-b border-slate-800/50 ${activeChatId === 'community' ? 'bg-slate-900' : ''}`}>
@@ -374,10 +389,7 @@ export const ShareModal: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-                        {/* Exit Button Only in Chat Mode Sidebar */}
-                         <div className="p-4 border-t border-slate-800">
-                             <button onClick={() => { if(confirm("Disconnect?")) { peerRef.current?.destroy(); setShareModalOpen(false); } }} className="w-full py-3 bg-red-900/20 text-red-400 rounded-xl font-bold text-xs">EXIT & DISCONNECT</button>
-                         </div>
+                        {/* Removed Disconnect Button from here to make community permanent */}
                     </div>
 
                     {/* Chat Area */}
@@ -391,11 +403,25 @@ export const ShareModal: React.FC = () => {
                          <div className="flex-1 overflow-y-auto p-4 space-y-3">
                              {messagesToRender.map(msg => (
                                  <div key={msg.id} className={`flex ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
-                                     <div className={`max-w-[80%] p-3 rounded-xl ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
-                                         {activeChatId === 'community' && (msg.senderId !== myPeerId && msg.senderId !== 'me') && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
-                                         <p className="text-sm">{msg.content}</p>
-                                         <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                                     </div>
+                                     {msg.isSystem ? <span className="bg-slate-800 text-slate-500 text-[10px] px-2 py-1 rounded-full">{msg.content}</span> : (
+                                         <div className="relative group">
+                                             <div className={`max-w-[80%] p-3 rounded-xl ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                                 {activeChatId === 'community' && (msg.senderId !== myPeerId && msg.senderId !== 'me') && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
+                                                 <p className="text-sm">{msg.content}</p>
+                                                 <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                             </div>
+                                             {/* Admin Delete Button */}
+                                             {userProfile.isAdmin && (
+                                                 <button 
+                                                    onClick={() => handleDeleteMessage(msg.id)}
+                                                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                                    title="Delete Message"
+                                                 >
+                                                     <Icons.Trash size={12} />
+                                                 </button>
+                                             )}
+                                         </div>
+                                     )}
                                  </div>
                              ))}
                          </div>
