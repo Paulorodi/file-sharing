@@ -1,0 +1,7 @@
+{
+  "name": "NeuroFile Local Manager",
+  "description": "A privacy-first local file manager. Organize, share, and search your files offline with P2P sharing capabilities.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
