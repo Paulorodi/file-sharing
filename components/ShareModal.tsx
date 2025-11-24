@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { useFileSystem } from '../context/FileSystemContext';
@@ -25,6 +26,12 @@ interface TransferProgress {
   peerId: string;
 }
 
+interface KnownPeer {
+    id: string;
+    name: string;
+    lastSeen: number;
+}
+
 const ADMIN_CODE = "admin-39892909";
 
 export const ShareModal: React.FC = () => {
@@ -45,6 +52,9 @@ export const ShareModal: React.FC = () => {
   const [activeChatId, setActiveChatId] = useState<string>('community');
   const [dmMessages, setDmMessages] = useState<Record<string, ChatMessage[]>>({});
   const [textInput, setTextInput] = useState('');
+  
+  // Known Peers (Saved Devices)
+  const [knownPeers, setKnownPeers] = useState<KnownPeer[]>([]);
 
   // Transfers
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
@@ -62,19 +72,31 @@ export const ShareModal: React.FC = () => {
   const connectionsMap = useRef<Map<string, DataConnection>>(new Map());
 
   // Auto-Reconnect Logic
+  const loadKnownPeers = () => {
+      try {
+        const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]');
+        setKnownPeers(known);
+        return known;
+      } catch (e) { return []; }
+  };
+
   const saveKnownPeer = (id: string, name: string) => {
       const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]');
-      if (!known.some((p: any) => p.id === id)) {
+      const existingIndex = known.findIndex((p: any) => p.id === id);
+      if (existingIndex >= 0) {
+          known[existingIndex].name = name;
+          known[existingIndex].lastSeen = Date.now();
+      } else {
           known.push({ id, name, lastSeen: Date.now() });
-          localStorage.setItem('neuro_known_peers', JSON.stringify(known));
       }
+      localStorage.setItem('neuro_known_peers', JSON.stringify(known));
+      setKnownPeers(known);
   };
 
   const connectToKnownPeers = () => {
-      const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]');
+      const known = loadKnownPeers();
       known.forEach((p: any) => {
           if (p.id !== myPeerId && !connectionsMap.current.has(p.id)) {
-              console.log("Auto-reconnecting to:", p.name);
               connectToPeer(p.id);
           }
       });
@@ -94,8 +116,7 @@ export const ShareModal: React.FC = () => {
         const PeerClass = (window as any).Peer || Peer;
         if (!PeerClass) { setConnectionStatus("PeerJS Missing"); return; }
         
-        // Persistent Peer ID if possible (User ID), otherwise random
-        // Using random for PeerJS cloud reliability, but could use userProfile.id if custom server
+        // Random ID for reliable cloud connection
         const id = Math.random().toString(36).substring(2, 8).toUpperCase();
         const peer = new PeerClass(id, { debug: 1 });
 
@@ -104,8 +125,9 @@ export const ShareModal: React.FC = () => {
           setConnectionStatus('Online');
           QRCode.toDataURL(JSON.stringify({id, name: userProfile.name})).then(setQrCodeUrl);
           
-          // Try to auto-connect to previous peers after a short delay
-          setTimeout(connectToKnownPeers, 1000);
+          // Load and Auto Connect
+          loadKnownPeers();
+          setTimeout(connectToKnownPeers, 1500);
         });
 
         peer.on('connection', handleNewConnection);
@@ -145,13 +167,21 @@ export const ShareModal: React.FC = () => {
       const peerId = conn.peer;
       
       if (data.type === 'handshake') {
-          const newPeer = { id: data.id || peerId, name: data.name || 'Unknown', conn, unread: 0 };
-          setPeers(prev => prev.find(p => p.id === newPeer.id) ? prev : [...prev, newPeer]);
-          
-          // Save to known peers for next time
-          saveKnownPeer(data.id || peerId, data.name || 'Unknown');
+          // Name Collision Handling
+          let displayName = data.name || 'Unknown';
+          if (displayName === userProfile.name) {
+              displayName = `${displayName} (${data.id?.substring(0, 4)})`;
+          }
 
-          // Sync Protocol
+          const newPeer = { id: data.id || peerId, name: displayName, conn, unread: 0 };
+          setPeers(prev => {
+              if (prev.some(p => p.id === newPeer.id)) return prev;
+              return [...prev, newPeer];
+          });
+          
+          saveKnownPeer(data.id || peerId, displayName);
+
+          // Sync Chat History
           if (data.chatHistory && Array.isArray(data.chatHistory)) {
               syncChatHistory(data.chatHistory);
           }
@@ -182,14 +212,17 @@ export const ShareModal: React.FC = () => {
   };
 
   const connectToPeer = (id: string) => {
-      if (!peerRef.current || !id || connectionsMap.current.has(id)) return;
+      if (!peerRef.current || !id) return;
+      if (connectionsMap.current.has(id)) {
+          // Already connected
+          return;
+      }
       handleNewConnection(peerRef.current.connect(id));
   };
 
   const sendMessage = () => {
       if (!textInput.trim()) return;
 
-      // --- ADMIN CHECK ---
       if (textInput === ADMIN_CODE) {
           enableAdminMode();
           alert("Admin Mode Activated");
@@ -288,6 +321,7 @@ export const ShareModal: React.FC = () => {
 
         <div className="bg-slate-900 w-full h-full md:max-w-4xl md:h-[800px] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-slate-700">
             
+            {/* === TRANSFER VIEW === */}
             {shareViewMode === 'transfer' && (
                 <div className="flex-1 flex flex-col">
                     <div className="p-6 bg-slate-950 border-b border-slate-800 flex flex-col items-center justify-center relative">
@@ -342,26 +376,71 @@ export const ShareModal: React.FC = () => {
                                  </div>
                              </div>
 
-                             <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800">
-                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3>
-                                 {transfers.length === 0 ? (
-                                     <p className="text-xs text-slate-500 text-center py-4">No transfers this session.</p>
-                                 ) : (
-                                     <div className="space-y-3">
-                                         {transfers.slice().reverse().map((t, i) => (
-                                             <div key={i} className="flex items-center space-x-3 bg-slate-900 p-2 rounded-lg">
-                                                 <div className={`p-2 rounded-full ${t.status === 'completed' ? 'text-green-400 bg-green-900/20' : 'text-blue-400 bg-blue-900/20'}`}>
-                                                     {t.status === 'completed' ? <Icons.Check size={14} /> : <Icons.Share size={14} />}
+                             {/* Known Peers List */}
+                             {knownPeers.length > 0 && (
+                                 <div>
+                                     <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 px-1">Saved Devices</h3>
+                                     <div className="space-y-2">
+                                         {knownPeers.map(p => {
+                                             const isOnline = peers.some(peer => peer.id === p.id);
+                                             return (
+                                                 <div key={p.id} onClick={() => connectToPeer(p.id)} className="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700/50 hover:bg-slate-750 cursor-pointer">
+                                                     <div className="flex items-center space-x-3">
+                                                         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isOnline ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                                                             {isOnline ? <Icons.Wifi size={18} /> : <Icons.Phone size={18} />}
+                                                         </div>
+                                                         <div>
+                                                             <p className="text-sm font-bold text-slate-200">{p.name}</p>
+                                                             <p className="text-[10px] text-slate-500">{isOnline ? 'Connected' : 'Tap to Reconnect'}</p>
+                                                         </div>
+                                                     </div>
+                                                     {!isOnline && <Icons.ChevronRight size={16} className="text-slate-600" />}
                                                  </div>
-                                                 <div className="flex-1 min-w-0">
-                                                     <p className="text-sm text-slate-200 truncate">{t.fileName}</p>
-                                                     <p className="text-[10px] text-slate-500">{(t.totalSize/1024/1024).toFixed(1)} MB</p>
-                                                 </div>
-                                             </div>
-                                         ))}
+                                             );
+                                         })}
                                      </div>
-                                 )}
+                                 </div>
+                             )}
+
+                             {/* Manual Connect */}
+                             <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4">
+                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Connect via Code</h3>
+                                 <div className="flex space-x-2">
+                                     <input 
+                                         value={connectIdInput}
+                                         onChange={(e) => setConnectIdInput(e.target.value.toUpperCase())}
+                                         placeholder="ENTER REMOTE ID"
+                                         className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase focus:border-blue-500 outline-none"
+                                     />
+                                     <button 
+                                         onClick={() => connectToPeer(connectIdInput)}
+                                         disabled={!connectIdInput}
+                                         className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
+                                     >
+                                         Connect
+                                     </button>
+                                 </div>
                              </div>
+
+                             {/* History List */}
+                             {transfers.length > 0 && (
+                                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800">
+                                    <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3>
+                                    <div className="space-y-3">
+                                        {transfers.slice().reverse().map((t, i) => (
+                                            <div key={i} className="flex items-center space-x-3 bg-slate-900 p-2 rounded-lg">
+                                                <div className={`p-2 rounded-full ${t.status === 'completed' ? 'text-green-400 bg-green-900/20' : 'text-blue-400 bg-blue-900/20'}`}>
+                                                    {t.status === 'completed' ? <Icons.Check size={14} /> : <Icons.Share size={14} />}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm text-slate-200 truncate">{t.fileName}</p>
+                                                    <p className="text-[10px] text-slate-500">{(t.totalSize/1024/1024).toFixed(1)} MB</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                             )}
                         </div>
                     )}
 
@@ -391,6 +470,7 @@ export const ShareModal: React.FC = () => {
                 </div>
             )}
 
+            {/* === CHAT VIEW === */}
             {shareViewMode === 'chat' && (
                 <div className="flex w-full h-full bg-slate-900">
                     <div className={`w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950 ${activeChatId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
@@ -424,9 +504,9 @@ export const ShareModal: React.FC = () => {
                                  <div key={msg.id} className={`flex ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
                                      {msg.isSystem ? <span className="bg-slate-800 text-slate-500 text-[10px] px-2 py-1 rounded-full">{msg.content}</span> : (
                                          <div className="relative group">
-                                             <div className={`max-w-[80%] p-3 rounded-xl ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                             <div className={`max-w-[80%] p-3 rounded-xl break-words whitespace-pre-wrap ${msg.senderId === myPeerId || msg.senderId === 'me' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
                                                  {activeChatId === 'community' && (msg.senderId !== myPeerId && msg.senderId !== 'me') && <p className="text-[10px] text-orange-400 font-bold mb-1">{msg.senderName}</p>}
-                                                 <p className="text-sm">{msg.content}</p>
+                                                 <p className="text-sm leading-relaxed">{msg.content}</p>
                                                  <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                              </div>
                                              {userProfile.isAdmin && (
