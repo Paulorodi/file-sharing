@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode, ChatMessage } from '../types';
 import { analyzeImageContent } from '../services/geminiService';
@@ -27,7 +26,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isAdmin: false,
       joinedAt
     };
-    // Save immediately so it persists
     localStorage.setItem('neuro_user', JSON.stringify(newProfile));
     return newProfile;
   });

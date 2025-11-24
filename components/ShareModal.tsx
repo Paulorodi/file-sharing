@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { useFileSystem } from '../context/FileSystemContext';
@@ -62,6 +61,25 @@ export const ShareModal: React.FC = () => {
   const peerRef = useRef<Peer | null>(null);
   const connectionsMap = useRef<Map<string, DataConnection>>(new Map());
 
+  // Auto-Reconnect Logic
+  const saveKnownPeer = (id: string, name: string) => {
+      const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]');
+      if (!known.some((p: any) => p.id === id)) {
+          known.push({ id, name, lastSeen: Date.now() });
+          localStorage.setItem('neuro_known_peers', JSON.stringify(known));
+      }
+  };
+
+  const connectToKnownPeers = () => {
+      const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]');
+      known.forEach((p: any) => {
+          if (p.id !== myPeerId && !connectionsMap.current.has(p.id)) {
+              console.log("Auto-reconnecting to:", p.name);
+              connectToPeer(p.id);
+          }
+      });
+  };
+
   // Initialize Tab based on Selection
   useEffect(() => {
     if (shareViewMode === 'transfer' && selectedFileIds.size > 0) {
@@ -75,6 +93,9 @@ export const ShareModal: React.FC = () => {
       try {
         const PeerClass = (window as any).Peer || Peer;
         if (!PeerClass) { setConnectionStatus("PeerJS Missing"); return; }
+        
+        // Persistent Peer ID if possible (User ID), otherwise random
+        // Using random for PeerJS cloud reliability, but could use userProfile.id if custom server
         const id = Math.random().toString(36).substring(2, 8).toUpperCase();
         const peer = new PeerClass(id, { debug: 1 });
 
@@ -82,6 +103,9 @@ export const ShareModal: React.FC = () => {
           setMyPeerId(id);
           setConnectionStatus('Online');
           QRCode.toDataURL(JSON.stringify({id, name: userProfile.name})).then(setQrCodeUrl);
+          
+          // Try to auto-connect to previous peers after a short delay
+          setTimeout(connectToKnownPeers, 1000);
         });
 
         peer.on('connection', handleNewConnection);
@@ -124,6 +148,10 @@ export const ShareModal: React.FC = () => {
           const newPeer = { id: data.id || peerId, name: data.name || 'Unknown', conn, unread: 0 };
           setPeers(prev => prev.find(p => p.id === newPeer.id) ? prev : [...prev, newPeer]);
           
+          // Save to known peers for next time
+          saveKnownPeer(data.id || peerId, data.name || 'Unknown');
+
+          // Sync Protocol
           if (data.chatHistory && Array.isArray(data.chatHistory)) {
               syncChatHistory(data.chatHistory);
           }
@@ -145,7 +173,6 @@ export const ShareModal: React.FC = () => {
           }
       }
       else if (data.type === 'delete-message') {
-          // Handle sync deletion
           deleteChatMessage(data.messageId);
       }
       else if (data.type === 'file-transfer') {
@@ -196,8 +223,7 @@ export const ShareModal: React.FC = () => {
   const handleDeleteMessage = (msgId: string) => {
       if (!userProfile.isAdmin) return;
       if (confirm("Delete this message for everyone?")) {
-          deleteChatMessage(msgId); // Delete local
-          // Broadcast delete to all peers
+          deleteChatMessage(msgId); 
           peers.forEach(p => p.conn.send({ type: 'delete-message', messageId: msgId }));
       }
   };
@@ -217,7 +243,6 @@ export const ShareModal: React.FC = () => {
       setTransferTab('dashboard');
   };
 
-  // QR Scanner Logic
   const startScanner = async () => {
     setTransferTab('scanner');
     try {
@@ -263,10 +288,8 @@ export const ShareModal: React.FC = () => {
 
         <div className="bg-slate-900 w-full h-full md:max-w-4xl md:h-[800px] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-slate-700">
             
-            {/* === TRANSFER VIEW === */}
             {shareViewMode === 'transfer' && (
                 <div className="flex-1 flex flex-col">
-                    {/* Header: Connection Status */}
                     <div className="p-6 bg-slate-950 border-b border-slate-800 flex flex-col items-center justify-center relative">
                          <div className="relative mb-2">
                              <div className={`w-16 h-16 rounded-full flex items-center justify-center ${peers.length > 0 ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500 animate-pulse'}`}>
@@ -368,10 +391,8 @@ export const ShareModal: React.FC = () => {
                 </div>
             )}
 
-            {/* === CHAT VIEW === */}
             {shareViewMode === 'chat' && (
                 <div className="flex w-full h-full bg-slate-900">
-                    {/* Sidebar */}
                     <div className={`w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950 ${activeChatId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
                         <div className="p-4 h-16 border-b border-slate-800 flex items-center justify-between">
                             <h2 className="font-bold text-white text-lg">Chats</h2>
@@ -389,10 +410,8 @@ export const ShareModal: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-                        {/* Removed Disconnect Button from here to make community permanent */}
                     </div>
 
-                    {/* Chat Area */}
                     <div className={`flex-1 flex-col bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed ${(!activeChatId && window.innerWidth < 768) ? 'hidden' : 'flex'}`}>
                          <div className="h-16 bg-slate-900 border-b border-slate-800 flex items-center px-4">
                              <button onClick={() => setActiveChatId('')} className="md:hidden mr-3 text-slate-400"><Icons.ChevronRight className="rotate-180" /></button>
@@ -410,7 +429,6 @@ export const ShareModal: React.FC = () => {
                                                  <p className="text-sm">{msg.content}</p>
                                                  <p className="text-[10px] opacity-50 text-right mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                              </div>
-                                             {/* Admin Delete Button */}
                                              {userProfile.isAdmin && (
                                                  <button 
                                                     onClick={() => handleDeleteMessage(msg.id)}
