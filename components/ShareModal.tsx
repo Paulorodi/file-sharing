@@ -47,6 +47,9 @@ export const ShareModal: React.FC = () => {
   const [transferTab, setTransferTab] = useState<'dashboard' | 'scanner' | 'files' | 'recipients'>('dashboard');
   const [showLargeQR, setShowLargeQR] = useState(false); 
   
+  // NEW: Success Popup State
+  const [showSuccessPopup, setShowSuccessPopup] = useState<{ visible: boolean, name: string }>({ visible: false, name: '' });
+
   // Recipient Selection State
   const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<string>>(new Set());
 
@@ -86,6 +89,12 @@ export const ShareModal: React.FC = () => {
   const saveKnownPeer = (id: string, name: string) => { const known = JSON.parse(localStorage.getItem('neuro_known_peers') || '[]'); const idx = known.findIndex((p:any) => p.id === id); if(idx >= 0) { known[idx].name = name; known[idx].lastSeen = Date.now(); } else { known.push({ id, name, lastSeen: Date.now() }); } localStorage.setItem('neuro_known_peers', JSON.stringify(known)); setKnownPeers(known); };
   const connectToKnownPeers = () => { loadKnownPeers().forEach((p: any) => { if (p.id !== myPeerId && !connectionsMap.current.has(p.id)) connectToPeer(p.id); }); };
   const copyConnectionLink = () => { navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?connect=${myPeerId}`); alert("Link copied!"); };
+
+  // Show success popup helper
+  const triggerSuccess = (peerName: string) => {
+      setShowSuccessPopup({ visible: true, name: peerName });
+      setTimeout(() => setShowSuccessPopup({ visible: false, name: '' }), 3000);
+  };
 
   useEffect(() => { 
       if (shareViewMode === 'transfer' && selectedFileIds.size > 0) {
@@ -127,14 +136,22 @@ export const ShareModal: React.FC = () => {
           const newPeer = { id: data.id || peerId, name: displayName, conn, unread: 0 };
           setPeers(prev => { if (prev.some(p => p.id === newPeer.id)) return prev; return [...prev, newPeer]; });
           saveKnownPeer(data.id || peerId, displayName);
+          
+          // NEW: Trigger Success Popup on Connection
+          triggerSuccess(displayName);
+          
+          // If we were scanning, stop scanning and return to dashboard
+          if (transferTab === 'scanner') {
+              stopScanner();
+              setTransferTab('dashboard');
+          }
+
       } else if (data.type === 'chat') {
           const msg: ChatMessage = { id: data.id, senderId: data.senderId, senderName: data.senderName, content: data.content, timestamp: data.timestamp, isCommunity: false };
           setDmMessages(prev => ({ ...prev, [peerId]: [...(prev[peerId] || []), msg] }));
       } else if (data.type === 'file-transfer') {
-          // FIX: Correctly set MIME type for download extension fix
           const mimeType = data.meta.type || 'application/octet-stream';
           addReceivedFile(new Blob([data.file], { type: mimeType }), { name: data.meta.name, type: mimeType });
-          
           setTransfers(prev => [...prev, { id: Date.now().toString(), fileName: data.meta.name, progress: 100, status: 'completed', speed: 'Done', totalSize: data.file.size, transferred: data.file.size, peerId }]);
       }
   };
@@ -147,46 +164,26 @@ export const ShareModal: React.FC = () => {
       const timestamp = Date.now();
       const msgId = Math.random().toString(36).substring(2) + Date.now();
       const msg: ChatMessage = { id: msgId, senderId: myPeerId || 'me', senderName: userProfile.name, content: textInput, timestamp, isCommunity: activeChatId === 'community' };
-      
-      if (activeChatId === 'community') {
-          addChatMessage(msg); 
-      } else {
-          setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
-          const target = peers.find(p => p.id === activeChatId);
-          if(target) target.conn.send({ type: 'chat', ...msg });
-      }
+      if (activeChatId === 'community') { addChatMessage(msg); } else { setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] })); const target = peers.find(p => p.id === activeChatId); if(target) target.conn.send({ type: 'chat', ...msg }); }
       setTextInput('');
   };
 
   const handleDeleteMessage = (msgId: string) => { if (!userProfile.isAdmin) return; if (confirm("Delete this message for everyone?")) { deleteChatMessage(msgId); } };
 
-  // SAFE RECIPIENT SELECTION
   const prepareSend = () => {
       if (selectedFileIds.size === 0) { alert("Select at least one file."); return; }
       if (peers.length === 0) { alert("No devices connected. Please connect first."); setTransferTab('dashboard'); return; }
-      
-      // Safety: If only 1 peer, select them. If multiple, force user to choose.
-      if (peers.length === 1) {
-          setSelectedRecipientIds(new Set([peers[0].id]));
-      } else {
-          setSelectedRecipientIds(new Set());
-      }
+      if (peers.length === 1) { setSelectedRecipientIds(new Set([peers[0].id])); } else { setSelectedRecipientIds(new Set()); }
       setTransferTab('recipients');
   };
 
   const toggleRecipient = (id: string) => {
-      setSelectedRecipientIds(prev => {
-          const newSet = new Set(prev);
-          if (newSet.has(id)) newSet.delete(id);
-          else newSet.add(id);
-          return newSet;
-      });
+      setSelectedRecipientIds(prev => { const newSet = new Set(prev); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); return newSet; });
   };
 
   const confirmAndSend = async () => {
       if (selectedRecipientIds.size === 0) { alert("Select at least one recipient."); return; }
       const targets = peers.filter(p => selectedRecipientIds.has(p.id));
-      
       for (const fileId of selectedFileIds) {
           const file = files.find(f => f.id === fileId);
           if (!file) continue;
@@ -194,14 +191,12 @@ export const ShareModal: React.FC = () => {
           targets.forEach(p => p.conn.send({ type: 'file-transfer', file: blob, meta: { name: file.name, type: file.mimeType }, senderName: userProfile.name }));
           setTransfers(prev => [...prev, { id: Date.now().toString(), fileName: file.name, progress: 100, status: 'completed', speed: 'Sent', totalSize: file.size, transferred: file.size, peerId: 'me' }]);
       }
-      clearSelection(); 
-      setTransferTab('dashboard');
+      clearSelection(); setTransferTab('dashboard');
   };
 
   const startScanner = async () => { setTransferTab('scanner'); try { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); streamRef.current = stream; if(videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); requestAnimationFrame(tickScanner); } } catch { setTransferTab('dashboard'); } };
   const stopScanner = () => { if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; } if(transferTab === 'scanner') setTransferTab('dashboard'); };
   const tickScanner = () => { if (!videoRef.current || !canvasRef.current) return; if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) { const ctx = canvasRef.current.getContext('2d'); if (ctx) { canvasRef.current.height = videoRef.current.videoHeight; canvasRef.current.width = videoRef.current.videoWidth; ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height); const code = jsQR(ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height).data, canvasRef.current.width, canvasRef.current.height); if (code) { try { connectToPeer(JSON.parse(code.data).id); } catch { connectToPeer(code.data); } stopScanner(); } } } requestAnimationFrame(tickScanner); };
-
   const handleDisconnect = () => { if(confirm("Are you sure you want to disconnect and exit?")) { peerRef.current?.destroy(); setShareModalOpen(false); } };
 
   if (isShareModalMinimized) return null;
@@ -209,6 +204,18 @@ export const ShareModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in">
+        {/* CONNECTION SUCCESS POPUP */}
+        {showSuccessPopup.visible && (
+            <div className="absolute inset-0 z-[80] flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in zoom-in">
+                <div className="bg-green-500 rounded-full p-4 mb-4 shadow-lg shadow-green-500/50">
+                    <Icons.Check size={48} className="text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">Connected!</h2>
+                <p className="text-green-400 mt-2">Successfully paired with {showSuccessPopup.name}</p>
+            </div>
+        )}
+
+        {/* Large QR */}
         {showLargeQR && qrCodeUrl && (
             <div className="absolute inset-0 z-[70] bg-black/95 flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
                 <div className="bg-white p-4 rounded-3xl shadow-2xl max-w-sm w-full aspect-square flex items-center justify-center relative overflow-hidden">
@@ -237,19 +244,10 @@ export const ShareModal: React.FC = () => {
                          {transferTab === 'dashboard' && <div className="mt-4 flex flex-col items-center"><button onClick={copyConnectionLink} className="text-blue-400 text-xs hover:underline mb-3 flex items-center"><Icons.Copy size={12} className="mr-1" /> Copy Remote Link</button>{qrCodeUrl && peers.length === 0 && <div onClick={() => setShowLargeQR(true)} className="p-2 bg-white rounded-xl cursor-pointer hover:scale-105 transition-transform"><img src={qrCodeUrl} className="w-24 h-24" alt="QR" /></div>}</div>}
                     </div>
                     {transferTab === 'scanner' && <div className="flex-1 bg-black flex flex-col items-center justify-center relative"><video ref={videoRef} className="w-full h-full object-cover" muted playsInline /><canvas ref={canvasRef} className="hidden" /><div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-64 h-64 border-2 border-green-500 rounded-lg relative"><div className="absolute top-2 left-2 bg-black/50 px-2 py-0.5 rounded text-[10px] font-mono text-green-400 border border-green-500/30">NS-ORD</div></div></div><button onClick={stopScanner} className="absolute bottom-8 bg-slate-800 text-white px-6 py-2 rounded-full font-bold">Cancel</button></div>}
-                    
                     {transferTab === 'dashboard' && <div className="flex-1 overflow-y-auto p-4 space-y-4">
                         <div className="grid grid-cols-2 gap-4"><button onClick={() => setTransferTab('files')} className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center hover:bg-slate-750 transition-colors border border-slate-700"><div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2"><Icons.Send size={24} /></div><span className="text-sm font-bold text-slate-200">Send Files</span></button><div className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center border border-slate-700 opacity-60"><div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center mb-2"><Icons.Download size={24} /></div><span className="text-sm font-bold text-slate-200">Ready to Receive</span></div></div>
-                        
-                        {/* Connect Code FIRST */}
                         <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4"><h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Connect via Code</h3><div className="flex space-x-2"><input value={connectIdInput} onChange={(e) => setConnectIdInput(e.target.value.toUpperCase())} placeholder="ENTER REMOTE ID" className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase focus:border-blue-500 outline-none" /><button onClick={() => connectToPeer(connectIdInput)} disabled={!connectIdInput} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">Connect</button></div></div>
-                        
-                        {/* Saved Devices SECOND */}
-                        {knownPeers.length > 0 && <div><h3 className="text-xs font-bold text-slate-500 uppercase mb-3 px-1">Saved Devices</h3><div className="space-y-2">{knownPeers.map(p => { 
-                            const isConnected = peers.some(peer => peer.id === p.id); 
-                            const isOnline = onlineUsers.has(p.id);
-                            return (<div key={p.id} onClick={() => connectToPeer(p.id)} className="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700/50 hover:bg-slate-750 cursor-pointer"><div className="flex items-center space-x-3"><div className={`relative w-10 h-10 rounded-full flex items-center justify-center ${isConnected ? 'bg-green-500/20 text-green-400' : isOnline ? 'bg-green-900/30 text-green-200' : 'bg-slate-700 text-slate-400'}`}>{isConnected ? <Icons.Wifi size={18} /> : <Icons.Phone size={18} />}{isOnline && !isConnected && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></div>}</div><div><p className="text-sm font-bold text-slate-200">{p.name}</p><p className="text-[10px] text-slate-500">{isConnected ? 'Connected' : isOnline ? 'Online' : 'Offline'}</p></div></div>{(!isConnected) && <Icons.ChevronRight size={16} className="text-slate-600" />}</div>);})}</div></div>}
-                        
+                        {knownPeers.length > 0 && <div><h3 className="text-xs font-bold text-slate-500 uppercase mb-3 px-1">Saved Devices</h3><div className="space-y-2">{knownPeers.map(p => { const isConnected = peers.some(peer => peer.id === p.id); const isOnline = onlineUsers.has(p.id); return (<div key={p.id} onClick={() => connectToPeer(p.id)} className="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700/50 hover:bg-slate-750 cursor-pointer"><div className="flex items-center space-x-3"><div className={`relative w-10 h-10 rounded-full flex items-center justify-center ${isConnected ? 'bg-green-500/20 text-green-400' : isOnline ? 'bg-green-900/30 text-green-200' : 'bg-slate-700 text-slate-400'}`}>{isConnected ? <Icons.Wifi size={18} /> : <Icons.Phone size={18} />}{isOnline && !isConnected && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></div>}</div><div><p className="text-sm font-bold text-slate-200">{p.name}</p><p className="text-[10px] text-slate-500">{isConnected ? 'Connected' : isOnline ? 'Online' : 'Offline'}</p></div></div>{(!isConnected) && <Icons.ChevronRight size={16} className="text-slate-600" />}</div>);})}</div></div>}
                         {transfers.length > 0 && <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800"><h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3><div className="space-y-3">{transfers.slice().reverse().map((t, i) => (<div key={i} className="flex items-center space-x-3 bg-slate-900 p-2 rounded-lg"><div className={`p-2 rounded-full ${t.status === 'completed' ? 'text-green-400 bg-green-900/20' : 'text-blue-400 bg-blue-900/20'}`}>{t.status === 'completed' ? <Icons.Check size={14} /> : <Icons.Share size={14} />}</div><div className="flex-1 min-w-0"><p className="text-sm text-slate-200 truncate">{t.fileName}</p><p className="text-[10px] text-slate-500">{(t.totalSize/1024/1024).toFixed(1)} MB</p></div></div>))}</div></div>}
                     </div>}
                     {transferTab === 'files' && <div className="flex-1 flex flex-col"><div className="p-4 border-b border-slate-800 flex items-center space-x-3"><button onClick={() => setTransferTab('dashboard')}><Icons.ChevronRight className="rotate-180 text-slate-400" /></button><h3 className="font-bold text-white">Select Files</h3></div><div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950">{files.map(f => (<div key={f.id} onClick={() => toggleSelection(f.id)} className={`p-2 border rounded-lg cursor-pointer ${selectedFileIds.has(f.id) ? 'border-blue-500 bg-blue-900/20' : 'border-slate-800 bg-slate-900'}`}><div className="flex items-center space-x-2"><Icons.File className="text-slate-400" size={16} /><span className="text-xs text-slate-200 truncate flex-1">{f.name}</span></div></div>))}</div>{selectedFileIds.size > 0 && (<div className="p-4 bg-slate-900 border-t border-slate-800"><button onClick={prepareSend} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">Select Recipients</button></div>)}</div>}
@@ -273,9 +271,7 @@ export const ShareModal: React.FC = () => {
                                 ))}
                             </div>
                             <div className="p-4 bg-slate-900 border-t border-slate-800">
-                                <button onClick={confirmAndSend} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-green-900/20">
-                                    Send to {selectedRecipientIds.size} Device(s)
-                                </button>
+                                <button onClick={confirmAndSend} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-green-900/20">Send to {selectedRecipientIds.size} Device(s)</button>
                             </div>
                         </div>
                     )}
@@ -290,10 +286,7 @@ export const ShareModal: React.FC = () => {
             {shareViewMode === 'chat' && (
                 <div className="flex w-full h-full bg-slate-900">
                     <div className={`w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950 ${activeChatId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
-                        <div className="p-4 h-16 border-b border-slate-800 flex items-center justify-between">
-                            <h2 className="font-bold text-white text-lg">Chats</h2>
-                            <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-slate-300 border border-slate-700 text-xl select-none">{userProfile.avatar}</div>
-                        </div>
+                        <div className="p-4 h-16 border-b border-slate-800 flex items-center justify-between"><h2 className="font-bold text-white text-lg">Chats</h2><div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-slate-300 border border-slate-700 text-xl select-none">{userProfile.avatar}</div></div>
                         <div className="flex-1 overflow-y-auto">
                             <button onClick={() => setActiveChatId('community')} className={`w-full p-4 flex items-center space-x-3 hover:bg-slate-900 border-b border-slate-800/50 ${activeChatId === 'community' ? 'bg-slate-900' : ''}`}><div className={`w-12 h-12 rounded-full flex items-center justify-center ${cloudReady ? 'bg-green-500/20 text-green-500' : 'bg-yellow-500/20 text-yellow-500'}`}><Icons.Radar size={24} /></div><div className="flex-1 text-left"><p className="font-bold text-white">Community</p><p className="text-xs text-slate-500">{cloudReady ? 'Global (Online)' : 'Cloud Config Missing'}</p></div></button>
                             {peers.map(p => (<button key={p.id} onClick={() => setActiveChatId(p.id)} className={`w-full p-4 flex items-center space-x-3 hover:bg-slate-900 border-b border-slate-800/50 ${activeChatId === p.id ? 'bg-slate-900' : ''}`}><div className="w-12 h-12 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center font-bold text-lg">{p.name.charAt(0)}</div><div className="flex-1 text-left"><p className="font-bold text-white">{p.name}</p><p className="text-xs text-green-500">Online (P2P)</p></div></button>))}
