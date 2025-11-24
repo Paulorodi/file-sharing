@@ -1,3 +1,4 @@
+
 import { initializeApp } from "firebase/app";
 import { 
   getFirestore, 
@@ -10,13 +11,13 @@ import {
   serverTimestamp,
   doc,
   setDoc,
-  deleteDoc
+  deleteDoc,
+  where
 } from "firebase/firestore";
 import { ChatMessage, UserProfile } from "../types";
 
 // ============================================================================
-// ⚠️ PASTE YOUR FIREBASE CONFIGURATION HERE ⚠️
-// Go to Firebase Console > Project Settings > General > Your Apps > SDK Setup and Configuration
+// FIREBASE CONFIGURATION
 // ============================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyATkjWtu-HKc_WOBBdGi53aQS2u1osD98g",
@@ -32,14 +33,13 @@ let db: any = null;
 let isConfigured = false;
 
 try {
-    // Simple check to see if the user has updated the config
-    if (firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY") {
+    if (firebaseConfig.apiKey && firebaseConfig.apiKey.startsWith("AIza")) {
         const app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         isConfigured = true;
         console.log("Firebase initialized successfully.");
     } else {
-        console.warn("Firebase config missing. Chat will be offline.");
+        console.warn("Firebase API Key invalid or missing. Chat will be offline.");
     }
 } catch (e) {
     console.error("Firebase init error:", e);
@@ -47,7 +47,7 @@ try {
 
 export const isFirebaseReady = () => isConfigured;
 
-// --- User Management ---
+// --- User Management & Presence ---
 export const registerUserInCloud = async (user: UserProfile) => {
     if (!db) return;
     try {
@@ -62,6 +62,43 @@ export const registerUserInCloud = async (user: UserProfile) => {
     } catch (e) {
         console.error("Error registering user:", e);
     }
+};
+
+export const updateHeartbeat = async (userId: string) => {
+    if (!db) return;
+    try {
+        const userRef = doc(db, "users", userId);
+        await setDoc(userRef, { lastSeen: serverTimestamp() }, { merge: true });
+    } catch (e) {
+        // Silent fail on heartbeat is okay
+    }
+};
+
+export const subscribeToUserPresence = (callback: (onlineUserIds: Set<string>) => void) => {
+    if (!db) return () => {};
+
+    // Query users active in the last 2 minutes (approximate logic via client listener)
+    // Note: Firestore queries on timestamps can be tricky without composite indexes.
+    // For simplicity in this free tier setup, we'll download recent users and filter locally.
+    const q = query(collection(db, "users"), limit(100)); 
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const onlineIds = new Set<string>();
+        const now = Date.now();
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.lastSeen) {
+                // Check if seen within last 2 minutes
+                const lastSeenTime = data.lastSeen.toMillis ? data.lastSeen.toMillis() : 0;
+                if (now - lastSeenTime < 2 * 60 * 1000) {
+                    onlineIds.add(doc.id);
+                }
+            }
+        });
+        callback(onlineIds);
+    });
+
+    return unsubscribe;
 };
 
 // --- Chat Management ---
@@ -88,7 +125,6 @@ export const subscribeToCommunityChat = (callback: (messages: ChatMessage[]) => 
                 isSystem: data.isSystem || false
             });
         });
-        // Return reversed (oldest first) for chat UI
         callback(messages.reverse());
     });
 

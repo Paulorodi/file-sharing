@@ -40,7 +40,7 @@ export const ShareModal: React.FC = () => {
       isShareModalMinimized, setShareModalMinimized,
       shareViewMode, selectedFileIds, toggleSelection, clearSelection,
       chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
-      enableAdminMode, autoConnectId
+      enableAdminMode, autoConnectId, onlineUsers
   } = useFileSystem();
   
   // --- State ---
@@ -138,7 +138,7 @@ export const ShareModal: React.FC = () => {
       const msg: ChatMessage = { id: msgId, senderId: myPeerId || 'me', senderName: userProfile.name, content: textInput, timestamp, isCommunity: activeChatId === 'community' };
       
       if (activeChatId === 'community') {
-          addChatMessage(msg); // Context handles Cloud sending
+          addChatMessage(msg); 
       } else {
           setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
           const target = peers.find(p => p.id === activeChatId);
@@ -150,7 +150,7 @@ export const ShareModal: React.FC = () => {
   const handleDeleteMessage = (msgId: string) => {
       if (!userProfile.isAdmin) return;
       if (confirm("Delete this message for everyone?")) {
-          deleteChatMessage(msgId); // Handled by Firebase logic in context
+          deleteChatMessage(msgId); 
       }
   };
 
@@ -170,6 +170,13 @@ export const ShareModal: React.FC = () => {
   const startScanner = async () => { setTransferTab('scanner'); try { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); streamRef.current = stream; if(videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); requestAnimationFrame(tickScanner); } } catch { setTransferTab('dashboard'); } };
   const stopScanner = () => { if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; } if(transferTab === 'scanner') setTransferTab('dashboard'); };
   const tickScanner = () => { if (!videoRef.current || !canvasRef.current) return; if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) { const ctx = canvasRef.current.getContext('2d'); if (ctx) { canvasRef.current.height = videoRef.current.videoHeight; canvasRef.current.width = videoRef.current.videoWidth; ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height); const code = jsQR(ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height).data, canvasRef.current.width, canvasRef.current.height); if (code) { try { connectToPeer(JSON.parse(code.data).id); } catch { connectToPeer(code.data); } stopScanner(); } } } requestAnimationFrame(tickScanner); };
+
+  const handleDisconnect = () => {
+      if(confirm("Are you sure you want to disconnect and exit?")) {
+          peerRef.current?.destroy();
+          setShareModalOpen(false);
+      }
+  };
 
   if (isShareModalMinimized) return null;
   const messagesToRender = activeChatId === 'community' ? chatHistory : (dmMessages[activeChatId] || []);
@@ -191,10 +198,9 @@ export const ShareModal: React.FC = () => {
             </div>
         )}
 
-        {/* Controls */}
+        {/* Controls: X Button Minimizes Only */}
         <div className="absolute top-4 right-4 z-50 flex items-center space-x-2">
-             <button onClick={() => setShareModalMinimized(true)} className="p-2 bg-slate-800 text-slate-400 rounded-full"><Icons.Minimize size={20} /></button>
-             {shareViewMode === 'transfer' && <button onClick={() => setShareModalOpen(false)} className="p-2 bg-slate-800 text-red-400 rounded-full"><Icons.Close size={20} /></button>}
+             <button onClick={() => setShareModalMinimized(true)} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full transition-colors shadow-lg"><Icons.Close size={20} /></button>
         </div>
 
         <div className="bg-slate-900 w-full h-full md:max-w-4xl md:h-[800px] md:rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-slate-700">
@@ -209,46 +215,33 @@ export const ShareModal: React.FC = () => {
                          {transferTab === 'dashboard' && <div className="mt-4 flex flex-col items-center"><button onClick={copyConnectionLink} className="text-blue-400 text-xs hover:underline mb-3 flex items-center"><Icons.Copy size={12} className="mr-1" /> Copy Remote Link</button>{qrCodeUrl && peers.length === 0 && <div onClick={() => setShowLargeQR(true)} className="p-2 bg-white rounded-xl cursor-pointer hover:scale-105 transition-transform"><img src={qrCodeUrl} className="w-24 h-24" alt="QR" /></div>}</div>}
                     </div>
                     {transferTab === 'scanner' && <div className="flex-1 bg-black flex flex-col items-center justify-center relative"><video ref={videoRef} className="w-full h-full object-cover" muted playsInline /><canvas ref={canvasRef} className="hidden" /><div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-64 h-64 border-2 border-green-500 rounded-lg relative"><div className="absolute top-2 left-2 bg-black/50 px-2 py-0.5 rounded text-[10px] font-mono text-green-400 border border-green-500/30">NS-ORD</div></div></div><button onClick={stopScanner} className="absolute bottom-8 bg-slate-800 text-white px-6 py-2 rounded-full font-bold">Cancel</button></div>}
-                    
-                    {transferTab === 'dashboard' && (
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                             <div className="grid grid-cols-2 gap-4"><button onClick={() => setTransferTab('files')} className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center hover:bg-slate-750 transition-colors border border-slate-700"><div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2"><Icons.Send size={24} /></div><span className="text-sm font-bold text-slate-200">Send Files</span></button><div className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center border border-slate-700 opacity-60"><div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center mb-2"><Icons.Download size={24} /></div><span className="text-sm font-bold text-slate-200">Ready to Receive</span></div></div>
-                             
-                             {/* 1. CONNECT VIA CODE (First) */}
-                             <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4">
-                                <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Connect via Code</h3>
-                                <div className="flex space-x-2">
-                                    <input value={connectIdInput} onChange={(e) => setConnectIdInput(e.target.value.toUpperCase())} placeholder="ENTER REMOTE ID" className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase focus:border-blue-500 outline-none" />
-                                    <button onClick={() => connectToPeer(connectIdInput)} disabled={!connectIdInput} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">Connect</button>
+                    {transferTab === 'dashboard' && <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-4"><button onClick={() => setTransferTab('files')} className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center hover:bg-slate-750 transition-colors border border-slate-700"><div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-2"><Icons.Send size={24} /></div><span className="text-sm font-bold text-slate-200">Send Files</span></button><div className="bg-slate-800 p-4 rounded-xl flex flex-col items-center justify-center border border-slate-700 opacity-60"><div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center mb-2"><Icons.Download size={24} /></div><span className="text-sm font-bold text-slate-200">Ready to Receive</span></div></div>
+                        
+                        {/* Connect Code Input FIRST */}
+                        <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4"><h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Connect via Code</h3><div className="flex space-x-2"><input value={connectIdInput} onChange={(e) => setConnectIdInput(e.target.value.toUpperCase())} placeholder="ENTER REMOTE ID" className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase focus:border-blue-500 outline-none" /><button onClick={() => connectToPeer(connectIdInput)} disabled={!connectIdInput} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">Connect</button></div></div>
+                        
+                        {/* Saved Devices List SECOND */}
+                        {knownPeers.length > 0 && <div><h3 className="text-xs font-bold text-slate-500 uppercase mb-3 px-1">Saved Devices</h3><div className="space-y-2">{knownPeers.map(p => { 
+                            const isConnected = peers.some(peer => peer.id === p.id); 
+                            const isOnline = onlineUsers.has(p.id);
+                            return (<div key={p.id} onClick={() => connectToPeer(p.id)} className="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700/50 hover:bg-slate-750 cursor-pointer"><div className="flex items-center space-x-3">
+                                <div className={`relative w-10 h-10 rounded-full flex items-center justify-center ${isConnected ? 'bg-green-500/20 text-green-400' : isOnline ? 'bg-green-900/30 text-green-200' : 'bg-slate-700 text-slate-400'}`}>
+                                    {isConnected ? <Icons.Wifi size={18} /> : <Icons.Phone size={18} />}
+                                    {isOnline && !isConnected && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></div>}
                                 </div>
-                             </div>
-                             
-                             {/* 2. SAVED DEVICES (Second) */}
-                             {knownPeers.length > 0 && (
-                                <div>
-                                    <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 px-1">Saved Devices</h3>
-                                    <div className="space-y-2">
-                                        {knownPeers.map(p => { 
-                                            const isOnline = peers.some(peer => peer.id === p.id); 
-                                            return (
-                                                <div key={p.id} onClick={() => connectToPeer(p.id)} className="bg-slate-800 p-3 rounded-xl flex items-center justify-between border border-slate-700/50 hover:bg-slate-750 cursor-pointer">
-                                                    <div className="flex items-center space-x-3">
-                                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isOnline ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>{isOnline ? <Icons.Wifi size={18} /> : <Icons.Phone size={18} />}</div>
-                                                        <div><p className="text-sm font-bold text-slate-200">{p.name}</p><p className="text-[10px] text-slate-500">{isOnline ? 'Connected' : 'Tap to Reconnect'}</p></div>
-                                                    </div>
-                                                    {!isOnline && <Icons.ChevronRight size={16} className="text-slate-600" />}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                             )}
-                             
-                             {transfers.length > 0 && <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800"><h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3><div className="space-y-3">{transfers.slice().reverse().map((t, i) => (<div key={i} className="flex items-center space-x-3 bg-slate-900 p-2 rounded-lg"><div className={`p-2 rounded-full ${t.status === 'completed' ? 'text-green-400 bg-green-900/20' : 'text-blue-400 bg-blue-900/20'}`}>{t.status === 'completed' ? <Icons.Check size={14} /> : <Icons.Share size={14} />}</div><div className="flex-1 min-w-0"><p className="text-sm text-slate-200 truncate">{t.fileName}</p><p className="text-[10px] text-slate-500">{(t.totalSize/1024/1024).toFixed(1)} MB</p></div></div>))}</div></div>}
-                        </div>
-                    )}
-                    
+                                <div><p className="text-sm font-bold text-slate-200">{p.name}</p><p className="text-[10px] text-slate-500">{isConnected ? 'Connected' : isOnline ? 'Online' : 'Offline'}</p></div></div>{(!isConnected) && <Icons.ChevronRight size={16} className="text-slate-600" />}</div>);})}</div></div>}
+                        
+                        {transfers.length > 0 && <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-800"><h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Recent Activity</h3><div className="space-y-3">{transfers.slice().reverse().map((t, i) => (<div key={i} className="flex items-center space-x-3 bg-slate-900 p-2 rounded-lg"><div className={`p-2 rounded-full ${t.status === 'completed' ? 'text-green-400 bg-green-900/20' : 'text-blue-400 bg-blue-900/20'}`}>{t.status === 'completed' ? <Icons.Check size={14} /> : <Icons.Share size={14} />}</div><div className="flex-1 min-w-0"><p className="text-sm text-slate-200 truncate">{t.fileName}</p><p className="text-[10px] text-slate-500">{(t.totalSize/1024/1024).toFixed(1)} MB</p></div></div>))}</div></div>}
+                    </div>}
                     {transferTab === 'files' && <div className="flex-1 flex flex-col"><div className="p-4 border-b border-slate-800 flex items-center space-x-3"><button onClick={() => setTransferTab('dashboard')}><Icons.ChevronRight className="rotate-180 text-slate-400" /></button><h3 className="font-bold text-white">Select Files</h3></div><div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950">{files.map(f => (<div key={f.id} onClick={() => toggleSelection(f.id)} className={`p-2 border rounded-lg cursor-pointer ${selectedFileIds.has(f.id) ? 'border-blue-500 bg-blue-900/20' : 'border-slate-800 bg-slate-900'}`}><div className="flex items-center space-x-2"><Icons.File className="text-slate-400" size={16} /><span className="text-xs text-slate-200 truncate flex-1">{f.name}</span></div></div>))}</div>{selectedFileIds.size > 0 && (<div className="p-4 bg-slate-900 border-t border-slate-800"><button onClick={sendSelectedFiles} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">Send {selectedFileIds.size} Files</button></div>)}</div>}
+                    
+                    {/* Explicit Disconnect Button for Transfer Mode */}
+                    <div className="p-4 border-t border-slate-800 bg-slate-950">
+                        <button onClick={handleDisconnect} className="w-full py-3 bg-red-900/10 hover:bg-red-900/20 text-red-400 rounded-xl font-medium text-sm transition-colors border border-red-900/30">
+                            Disconnect & Exit
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -273,6 +266,11 @@ export const ShareModal: React.FC = () => {
                                     <div className="flex-1 text-left"><p className="font-bold text-white">{p.name}</p><p className="text-xs text-green-500">Online (P2P)</p></div>
                                 </button>
                             ))}
+                        </div>
+                        
+                        {/* Explicit Disconnect for Chat Mode */}
+                        <div className="p-4 border-t border-slate-800">
+                             <button onClick={handleDisconnect} className="w-full py-3 bg-red-900/10 hover:bg-red-900/20 text-red-400 rounded-xl font-medium text-sm transition-colors border border-red-900/30">EXIT & DISCONNECT</button>
                         </div>
                     </div>
                     <div className={`flex-1 flex-col bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed ${(!activeChatId && window.innerWidth < 768) ? 'hidden' : 'flex'}`}>

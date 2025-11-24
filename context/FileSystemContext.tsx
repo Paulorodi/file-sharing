@@ -1,9 +1,12 @@
+
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { FileItem, Folder, FileSystemContextType, FileType, SortOption, ViewMode, AIAnalysisData, UserProfile, TransferHistoryItem, ShareViewMode, ChatMessage } from '../types';
 import { analyzeImageContent } from '../services/geminiService';
 import { 
     isFirebaseReady, 
     registerUserInCloud, 
+    updateHeartbeat,
+    subscribeToUserPresence,
     subscribeToCommunityChat, 
     sendCloudMessage, 
     deleteCloudMessage 
@@ -40,7 +43,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const newProfile = { ...userProfile, name, avatar };
     setUserProfile(newProfile);
     localStorage.setItem('neuro_user', JSON.stringify(newProfile));
-    // Update in Cloud
     if (isFirebaseReady()) registerUserInCloud(newProfile);
   };
 
@@ -56,9 +58,34 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (isFirebaseReady()) registerUserInCloud(newProfile);
   }, [userProfile]);
 
-  // Register on Start
+  // Register on Start and Heartbeat
   useEffect(() => {
-      if (isFirebaseReady()) registerUserInCloud(userProfile);
+      if (isFirebaseReady()) {
+          console.log("Connecting to Cloud...");
+          registerUserInCloud(userProfile);
+          
+          // Initial heartbeat
+          updateHeartbeat(userProfile.id);
+
+          // Loop heartbeat every 60s
+          const interval = setInterval(() => {
+              updateHeartbeat(userProfile.id);
+          }, 60000);
+
+          return () => clearInterval(interval);
+      }
+  }, []);
+
+  // Presence Listener
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  
+  useEffect(() => {
+      if (isFirebaseReady()) {
+          const unsubscribe = subscribeToUserPresence((ids) => {
+              setOnlineUsers(ids);
+          });
+          return () => unsubscribe();
+      }
   }, []);
 
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -97,7 +124,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- CLOUD CHAT LOGIC ---
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
-  // Subscribe to Firebase
+  // Subscribe to Chat
   useEffect(() => {
       if (isFirebaseReady()) {
           const unsubscribe = subscribeToCommunityChat((messages) => {
@@ -111,7 +138,6 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (msg.isCommunity && isFirebaseReady()) {
           sendCloudMessage(msg);
       } else {
-          // Fallback to local state if offline or DM
           setChatHistory(prev => [...prev, msg]);
       }
   }, []);
@@ -125,8 +151,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   const syncChatHistory = useCallback((remoteMessages: ChatMessage[]) => {
-      // If Cloud is active, ignore P2P sync for community chat to prevent conflicts
-      if (isFirebaseReady()) return;
+      if (isFirebaseReady()) return; 
 
       setChatHistory(prev => {
           const existingIds = new Set(prev.map(m => m.id));
@@ -219,7 +244,7 @@ export const FileSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isShareModalMinimized, setShareModalMinimized, shareViewMode, setShareViewMode,
       selectedFileIds, toggleSelection, clearSelection,
       chatHistory, addChatMessage, deleteChatMessage, syncChatHistory,
-      autoConnectId,
+      autoConnectId, onlineUsers,
       addFiles, deleteFile, restoreFile, permanentlyDeleteFile, createFolder, moveToFolder,
       setSearchQuery, setCurrentFolderId, setViewMode, setSortOption, setActiveFilter, toggleSidebar,
       analyzeFileWithAI, analyzeAllFiles

@@ -111,8 +111,9 @@ export interface FileSystemContextType {
   deleteChatMessage: (msgId: string) => void;
   syncChatHistory: (remoteParams: ChatMessage[]) => void;
   
-  // Auto Connect
+  // Auto Connect & Presence
   autoConnectId?: string | null;
+  onlineUsers: Set<string>; // Set of User IDs currently online in cloud
 
   // Actions
   addFiles: (files: FileList) => Promise<void>;
