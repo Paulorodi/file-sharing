@@ -123,7 +123,12 @@ export const ShareModal: React.FC = () => {
           const msg: ChatMessage = { id: data.id, senderId: data.senderId, senderName: data.senderName, content: data.content, timestamp: data.timestamp, isCommunity: false };
           setDmMessages(prev => ({ ...prev, [peerId]: [...(prev[peerId] || []), msg] }));
       } else if (data.type === 'file-transfer') {
-          addReceivedFile(new Blob([data.file]), { name: data.meta.name, type: data.meta.type });
+          // FIX APPLIED HERE: Explicitly set MIME type in Blob constructor
+          const mimeType = data.meta.type || 'application/octet-stream';
+          const blob = new Blob([data.file], { type: mimeType });
+          
+          addReceivedFile(blob, { name: data.meta.name, type: mimeType });
+          
           setTransfers(prev => [...prev, { id: Date.now().toString(), fileName: data.meta.name, progress: 100, status: 'completed', speed: 'Done', totalSize: data.file.size, transferred: data.file.size, peerId }]);
       }
   };
@@ -138,7 +143,7 @@ export const ShareModal: React.FC = () => {
       const msg: ChatMessage = { id: msgId, senderId: myPeerId || 'me', senderName: userProfile.name, content: textInput, timestamp, isCommunity: activeChatId === 'community' };
       
       if (activeChatId === 'community') {
-          addChatMessage(msg); 
+          addChatMessage(msg); // Context handles Cloud sending
       } else {
           setDmMessages(prev => ({ ...prev, [activeChatId]: [...(prev[activeChatId] || []), msg] }));
           const target = peers.find(p => p.id === activeChatId);
@@ -150,7 +155,7 @@ export const ShareModal: React.FC = () => {
   const handleDeleteMessage = (msgId: string) => {
       if (!userProfile.isAdmin) return;
       if (confirm("Delete this message for everyone?")) {
-          deleteChatMessage(msgId); 
+          deleteChatMessage(msgId); // Handled by Firebase logic in context
       }
   };
 
